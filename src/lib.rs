@@ -10,7 +10,7 @@ use std::mem;
 #[derive(Debug)]
 pub struct CuckooHashMap<K, V>
     where
-        K: Hash + Eq + Debug
+        K: Hash + Eq
 {
     hash_builder1: RandomState,
     hash_builder2: RandomState,
@@ -21,12 +21,12 @@ const SLOTS_PER_BUCKET: usize = 4;
 const INITIAL_SIZE: usize = 128;
 
 #[derive(Debug)]
-struct Bucket<K: Debug, V> {
+struct Bucket<K, V> {
     slots: [Option<(K, V)>; SLOTS_PER_BUCKET],
 }
 
 impl<K, V> Bucket<K, V>
-    where K: Debug + Eq
+    where K: Eq
 {
     fn new() -> Self {
         Bucket {
@@ -66,16 +66,16 @@ impl<K, V> Bucket<K, V>
     }
 }
 
-pub enum Entry<K: Hash + Eq + Debug, V> {
+pub enum Entry<K: Hash + Eq, V> {
     Occupied(OccupiedEntry<K, V>),
     Vacant(VacantEntry<K, V>),
 }
 
-pub struct OccupiedEntry<K: Hash + Eq + Debug, V> {
+pub struct OccupiedEntry<K: Hash + Eq, V> {
     map: CuckooHashMap<K, V>
 }
 
-pub struct VacantEntry<K: Hash + Eq + Debug, V> {
+pub struct VacantEntry<K: Hash + Eq, V> {
     map: CuckooHashMap<K, V>
 }
 
@@ -87,7 +87,7 @@ enum InsertResult<K, V> {
 
 impl<K, V> CuckooHashMap<K, V>
     where
-        K: Hash + Eq + Debug,
+        K: Hash + Eq,
 {
     pub fn new() -> CuckooHashMap<K, V> {
         CuckooHashMap {
