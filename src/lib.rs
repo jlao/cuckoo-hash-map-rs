@@ -5,6 +5,7 @@ use std::hash::Hash;
 use std::hash::{BuildHasher, Hasher};
 use std::collections::hash_map::RandomState;
 use std::fmt::Debug;
+use std::mem;
 
 #[derive(Debug)]
 pub struct CuckooHashMap<K, V>
@@ -33,11 +34,21 @@ impl<K, V> Bucket<K, V>
         }
     }
 
-    fn get_slot(&mut self) -> &mut Option<(K, V)> {
+    fn get_slot(&mut self, k: &K) -> &mut Option<(K, V)> {
+        let mut open_slot = None;
+
         for i in 0..self.slots.len() {
-            if self.slots[i].is_none() {
-                return &mut self.slots[i];
+            if self.slots[i].is_some() {
+                if self.slots[i].as_ref().unwrap().0 == *k {
+                    return &mut self.slots[i];
+                }
+            } else {
+                open_slot = Some(i);
             }
+        }
+
+        if let Some(i) = open_slot {
+            return &mut self.slots[i];
         }
         
         &mut self.slots[rand::random::<usize>() % 4]
@@ -55,6 +66,25 @@ impl<K, V> Bucket<K, V>
     }
 }
 
+pub enum Entry<K: Hash + Eq + Debug, V> {
+    Occupied(OccupiedEntry<K, V>),
+    Vacant(VacantEntry<K, V>),
+}
+
+pub struct OccupiedEntry<K: Hash + Eq + Debug, V> {
+    map: CuckooHashMap<K, V>
+}
+
+pub struct VacantEntry<K: Hash + Eq + Debug, V> {
+    map: CuckooHashMap<K, V>
+}
+
+enum InsertResult<K, V> {
+    None,
+    Replaced(V),
+    Kicked(K, V),
+}
+
 impl<K, V> CuckooHashMap<K, V>
     where
         K: Hash + Eq + Debug,
@@ -68,33 +98,60 @@ impl<K, V> CuckooHashMap<K, V>
     }
 
     pub fn insert(&mut self, k: K, v: V) -> Option<V> {
-        let mut existing = (k, v);
-        while let Some(new_existing) = self.insert_kicked(existing) {
-            existing = new_existing;
+        let mut insert = (k, v);
+        loop {
+            match self.insert_kicked(insert) {
+                InsertResult::None => return None,
+                InsertResult::Replaced(v) => return Some(v),
+                InsertResult::Kicked(k, v) => {
+                    insert = (k, v);
+                }
+            }
         }
-
-        None
     }
 
     // Inserts v at k. Returns kicked item or None.
-    fn insert_kicked(&mut self, kv: (K, V)) -> Option<(K, V)> {
+    fn insert_kicked(&mut self, kv: (K, V)) -> InsertResult<K, V> {
         let (k, v) = kv;
         {
             let h1 = self.hash1(&k);
             let bucket = &mut self.buckets[h1];
-            let slot = bucket.get_slot();
-            if slot.is_none() {
-                *slot = Some((k, v));
-                return None;
+            let slot = bucket.get_slot(&k);
+
+            match slot {
+                None => {
+                    *slot = Some((k, v));
+                    println!("Inserted into {}", h1);
+                    return InsertResult::None;
+                },
+                Some(existing) => {
+                    if existing.0 == k {
+                        let prev = mem::replace(&mut existing.1, v);
+                        return InsertResult::Replaced(prev);
+                    }
+                }
             }
         }
 
         let h2 = self.hash2(&k);
         let bucket = &mut self.buckets[h2];
-        let slot = bucket.get_slot();
-        let existing = slot.take();
-        *slot = Some((k, v));
-        existing
+        let slot = bucket.get_slot(&k);
+
+        match slot {
+            None => {
+                *slot = Some((k, v));
+                return InsertResult::None;
+            },
+            Some(existing) => {
+                if existing.0 == k {
+                    let prev = mem::replace(&mut existing.1, v);
+                    InsertResult::Replaced(prev)
+                } else {
+                    let (k, v) = mem::replace(existing, (k, v));
+                    InsertResult::Kicked(k, v)
+                }
+            }
+        }
     }
 
     pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
@@ -134,9 +191,20 @@ mod tests {
     #[test]
     fn basics() {
         let mut map = CuckooHashMap::new();
-        map.insert(1, "foo");
-        map.insert(2, "bar");
+        map.insert(1, "foo".to_string());
+        map.insert(2, "bar".to_string());
 
-        assert_eq!(Some(&"foo"), map.get(&1));
+        assert_eq!(Some(&"foo".to_string()), map.get(&1));
+    }
+
+    #[test]
+    fn insert() {
+        let mut map = CuckooHashMap::new();
+        map.insert(1, "foo".to_string());
+        assert_eq!(Some(&"foo".to_string()), map.get(&1));
+
+        let prev = map.insert(1, "bar".to_string());
+        assert_eq!(Some("foo".to_string()), prev);
+        assert_eq!(Some(&"bar".to_string()), map.get(&1));
     }
 }
