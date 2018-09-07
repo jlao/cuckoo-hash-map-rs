@@ -374,6 +374,20 @@ impl<K, V> CuckooHashMap<K, V>
         }
     }
 
+    pub fn remove_entry<Q>(&mut self, key: &Q) -> Option<(K, V)>
+        where
+            K: Borrow<Q>,
+            Q: Hash + Eq,
+    {
+        let hashkey = self.hash(key);
+        let mut slot = find_slot(&mut self.table, &hashkey, |k| k.borrow() == key);
+        if slot.slot_status == SlotStatus::Match {
+            slot.remove()
+        } else {
+            None
+        }
+    }
+
     fn hash<Q: Hash>(&self, key: &Q) -> HashKey {
         let mut hasher = self.state.build_hasher();
         key.hash(&mut hasher);

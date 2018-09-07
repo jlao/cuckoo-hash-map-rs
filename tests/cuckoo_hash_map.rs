@@ -40,3 +40,13 @@ fn remove() {
     assert_eq!(map.remove(&1), Some("hello".to_string()));
     assert_eq!(map.remove(&1), None);
 }
+
+#[test]
+fn remove_entry() {
+    let mut map = CuckooHashMap::new();
+    assert_eq!(map.remove_entry(&1), None);
+
+    map.insert(1, "hello".to_string());
+    assert_eq!(map.remove_entry(&1), Some((1, "hello".to_string())));
+    assert_eq!(map.remove(&1), None);
+}
