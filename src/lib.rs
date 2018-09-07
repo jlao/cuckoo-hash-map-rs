@@ -6,23 +6,261 @@ use std::hash::{BuildHasher, Hasher};
 use std::collections::hash_map::RandomState;
 use std::fmt::Debug;
 use std::mem;
+use std::ops::{Deref, DerefMut};
 
 #[derive(Debug)]
 pub struct CuckooHashMap<K, V>
     where
         K: Hash + Eq
 {
-    hash_builder1: RandomState,
-    hash_builder2: RandomState,
+    state: RandomState,
+    table: Table<K, V>,
+}
+
+#[derive(Debug)]
+struct HashKey {
+    hash: usize,
+    partial: u8,
+}
+
+impl HashKey {
+    fn new(hash: usize, partial: u8) -> HashKey {
+        HashKey {
+            hash,
+            partial,
+        }
+    }
+
+    fn index(&self, table_size: usize) -> usize {
+        self.hash % table_size
+    }
+
+    fn alt_index(&self, table_size: usize) -> usize {
+        let index = self.index(table_size);
+        (index ^ (self.partial as usize).wrapping_mul(0xc6a4a7935bd1e995)) % table_size
+    }
+}
+
+fn create_partial(hash: usize) -> u8 {
+    let hash = (hash as u32) ^ ((hash >> 32) as u32);
+    let hash = (hash as u16) ^ ((hash >> 16) as u16);
+    let hash = (hash as u8) ^ ((hash >> 8) as u8);
+    if hash > 0 { hash } else { 1 }
+}
+
+#[derive(Debug)]
+struct Table<K, V>
+    where
+        K: Eq,
+{
     buckets: Vec<Bucket<K, V>>,
+}
+
+impl<K, V> Table<K, V>
+    where
+        K: Eq,
+{
+    fn new() -> Table<K, V> {
+        Table {
+            buckets: (0..INITIAL_SIZE).map(|_| Bucket::new()).collect(),
+        }
+    }
+
+    fn size(&self) -> usize {
+        self.buckets.len()
+    }
+}
+
+fn find_slot<K, V, M, F>(table: M, hashkey: &HashKey, is_match: F)
+    -> Slot<M>
+    where
+        K: Eq,
+        M: Deref<Target = Table<K, V>>,
+        F: Fn(&K) -> bool,
+{
+    // Look in first bucket
+    let b1_index = hashkey.index(table.size());
+    println!("Looking in bucket {}", b1_index);
+    let (b1_slot, b1_slot_status) =
+        table.buckets[b1_index].find_slot(hashkey, &is_match);
+
+    if b1_slot_status == SlotStatus::Match {
+        return Slot::new(b1_index, b1_slot, SlotStatus::Match, table);
+    }
+
+    // Look in second bucket
+    let b2_index = hashkey.alt_index(table.size());
+    println!("Looking in bucket {}", b2_index);
+    let (b2_slot, b2_slot_status) =
+        table.buckets[b2_index].find_slot(hashkey, &is_match);
+
+    match b2_slot_status {
+        SlotStatus::Match => {
+            Slot::new(b2_index, b2_slot, SlotStatus::Match, table)
+        },
+        SlotStatus::Open => {
+            if b1_slot_status == SlotStatus::Open {
+                // Prefer open slots from first bucket
+                Slot::new(b1_index, b1_slot, SlotStatus::Open, table)
+            } else {
+                Slot::new(b2_index, b2_slot, SlotStatus::Open, table)
+            }
+        },
+        SlotStatus::Occupied => {
+            Slot::new(b2_index, b2_slot, SlotStatus::Occupied, table)
+        }
+    }
+}
+
+fn find_alt_slot<K, V, M, F>(table: M, hashkey: &HashKey, is_match: F)
+    -> Slot<M>
+    where
+        K: Eq,
+        M: Deref<Target = Table<K, V>>,
+        F: Fn(&K) -> bool,
+{
+    let bucket = hashkey.alt_index(table.size());
+    let (slot, slot_status) =
+        table.buckets[bucket].find_slot(hashkey, &is_match);
+
+    Slot::new(bucket, slot, slot_status, table)
 }
 
 const SLOTS_PER_BUCKET: usize = 4;
 const INITIAL_SIZE: usize = 128;
 
+struct Slot<M> {
+    bucket: usize,
+    slot: usize,
+    slot_status: SlotStatus,
+    table: M,
+}
+
+impl<M> Slot<M> {
+    fn new(bucket: usize, slot: usize, slot_status: SlotStatus, table: M)
+        -> Slot<M>
+    {
+        Slot { bucket, slot, slot_status, table }
+    }
+}
+
+enum InsertResult<K, V> {
+    Open,
+    Match { prev: V },
+    Displaced(Displaced<K, V>),
+}
+
+struct Displaced<K, V> {
+    key: K,
+    val: V,
+    partial: PartialKey,
+    bucket: usize,
+}
+
+impl<K, V> Displaced<K, V> {
+    fn hashkey(&self) -> HashKey {
+        HashKey::new(self.bucket, self.partial)
+    }
+}
+
+impl<'m, K: 'm, V: 'm> Slot<&'m Table<K, V>>
+    where
+        K: Eq,
+{
+    fn val(&self) -> &'m Option<(K, V)> {
+        &self.table.buckets[self.bucket].slots[self.slot]
+    }
+}
+
+impl<'m, K: 'm, V: 'm> Slot<&'m mut Table<K, V>>
+    where
+        K: Eq,
+{
+    fn val_mut(self) -> &'m mut V {
+        &mut self.table.buckets[self.bucket].slots[self.slot].as_mut().unwrap().1
+    }
+
+    fn raw_slot_mut(&mut self) -> &mut RawSlot<K, V> {
+        &mut self.table.buckets[self.bucket].slots[self.slot]
+    }
+
+    fn partial_mut(&mut self) -> &mut PartialKey {
+        &mut self.table.buckets[self.bucket].partials[self.slot]
+    }
+
+    fn insert(&mut self, hashkey: &HashKey, key: K, val: V) -> InsertResult<K, V>
+    {
+        let prev_partial = *self.partial_mut();
+        *self.partial_mut() = hashkey.partial;
+        match self.slot_status {
+            SlotStatus::Open => {
+                *self.raw_slot_mut() = Some((key, val));
+                InsertResult::Open
+            },
+            SlotStatus::Match => {
+                let (key, prev) = self.raw_slot_mut().take().unwrap();
+                *self.raw_slot_mut() = Some((key, val));
+                InsertResult::Match { prev }
+            },
+            SlotStatus::Occupied => {
+                let (pkey, pval) = self.raw_slot_mut().take().unwrap();
+                *self.raw_slot_mut() = Some((key, val));
+                InsertResult::Displaced(Displaced {
+                    key: pkey,
+                    val: pval,
+                    partial: prev_partial,
+                    bucket: self.bucket,
+                })
+            }
+        }
+    }
+
+    fn remove(&mut self) -> Option<(K, V)> {
+        debug_assert_eq!(SlotStatus::Match, self.slot_status);
+        self.raw_slot_mut().take()
+    }
+}
+
+fn insert_loop<K: Eq, V>(
+    slot: &mut Slot<&mut Table<K, V>>,
+    hashkey: &HashKey,
+    key: K,
+    val: V) -> Option<V>
+{
+    let mut insert_result = slot.insert(&hashkey, key, val);
+
+    match insert_result {
+        InsertResult::Open => return None,
+        InsertResult::Match { prev } => return Some(prev),
+        _ => {},
+    }
+
+    while let InsertResult::Displaced(displaced) = insert_result {
+        let hashkey = displaced.hashkey();
+        let mut slot = find_alt_slot(
+            &mut *slot.table,
+            &hashkey,
+            |k| k == &displaced.key);
+        insert_result = slot.insert(&hashkey, displaced.key, displaced.val);
+    }
+
+    None
+}
+
+#[derive(PartialEq, Eq, Debug)]
+enum SlotStatus {
+    Open,
+    Match,
+    Occupied,
+}
+
+type RawSlot<K, V> = Option<(K, V)>;
+type PartialKey = u8;
+
 #[derive(Debug)]
 struct Bucket<K, V> {
-    slots: [Option<(K, V)>; SLOTS_PER_BUCKET],
+    partials: [PartialKey; SLOTS_PER_BUCKET],
+    slots: [RawSlot<K, V>; SLOTS_PER_BUCKET],
 }
 
 impl<K, V> Bucket<K, V>
@@ -30,59 +268,51 @@ impl<K, V> Bucket<K, V>
 {
     fn new() -> Self {
         Bucket {
-            slots: [None, None, None, None]
+            partials: [0; SLOTS_PER_BUCKET],
+            slots: [None, None, None, None],
         }
     }
 
-    fn get_slot(&mut self, k: &K) -> &mut Option<(K, V)> {
+    fn find_slot<F>(&self, hashkey: &HashKey, is_match: &F) -> (usize, SlotStatus)
+        where
+            F: Fn(&K) -> bool
+    {
         let mut open_slot = None;
 
         for i in 0..self.slots.len() {
-            if self.slots[i].is_some() {
-                if self.slots[i].as_ref().unwrap().0 == *k {
-                    return &mut self.slots[i];
-                }
-            } else {
+            println!("Looking in slot {}", i);
+
+            if self.partials[i] == 0 {
                 open_slot = Some(i);
+                println!("Partial is 0 in bucket {}", i);
+                continue;
+            }
+
+            if self.partials[i] != hashkey.partial {
+                println!("Partial is {} in bucket {}", hashkey.partial, i);
+                continue;
+            }
+
+            match &self.slots[i] {
+                None if open_slot.is_none() => {
+                    open_slot = Some(i);
+                    continue;
+                },
+                None => {},
+                Some((k, _)) => {
+                    if is_match(k) {
+                        return (i, SlotStatus::Match);
+                    }
+                }
             }
         }
 
         if let Some(i) = open_slot {
-            return &mut self.slots[i];
+            return (i, SlotStatus::Open);
         }
-        
-        &mut self.slots[rand::random::<usize>() % 4]
+
+        (rand::random::<usize>() % SLOTS_PER_BUCKET, SlotStatus::Occupied)
     }
-
-    pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
-        where
-            K: Borrow<Q>,
-            Q: Eq,
-    {
-        self.slots.iter()
-            .filter_map(|slot| slot.as_ref())
-            .find(|&(key, _)| key.borrow() == k)
-            .map(|(_, val)| val)
-    }
-}
-
-pub enum Entry<K: Hash + Eq, V> {
-    Occupied(OccupiedEntry<K, V>),
-    Vacant(VacantEntry<K, V>),
-}
-
-pub struct OccupiedEntry<K: Hash + Eq, V> {
-    map: CuckooHashMap<K, V>
-}
-
-pub struct VacantEntry<K: Hash + Eq, V> {
-    map: CuckooHashMap<K, V>
-}
-
-enum InsertResult<K, V> {
-    None,
-    Replaced(V),
-    Kicked(K, V),
 }
 
 impl<K, V> CuckooHashMap<K, V>
@@ -91,120 +321,213 @@ impl<K, V> CuckooHashMap<K, V>
 {
     pub fn new() -> CuckooHashMap<K, V> {
         CuckooHashMap {
-            buckets: (0..INITIAL_SIZE).map(|_| Bucket::new()).collect(),
-            hash_builder1: RandomState::new(),
-            hash_builder2: RandomState::new(),
+            state: RandomState::new(),
+            table: Table::new(),
         }
     }
 
-    pub fn insert(&mut self, k: K, v: V) -> Option<V> {
-        let mut insert = (k, v);
-        loop {
-            match self.insert_kicked(insert) {
-                InsertResult::None => return None,
-                InsertResult::Replaced(v) => return Some(v),
-                InsertResult::Kicked(k, v) => {
-                    insert = (k, v);
-                }
-            }
-        }
+/*
+    pub fn entry(&mut self, key: K) -> Entry<K, V> {
+        let hashkey = self.hash(&key);
+        let mut slot = find_slot(
+            &mut self.table,
+            &hashkey,
+            |k| k == &key);
+    }
+*/
+
+    pub fn insert(&mut self, key: K, val: V) -> Option<V> {
+        let hashkey = self.hash(&key);
+        let mut slot = find_slot(&mut self.table, &hashkey, |k| k == &key);
+        insert_loop(
+            &mut slot,
+            &hashkey,
+            key,
+            val)
     }
 
-    // Inserts v at k. Returns kicked item or None.
-    fn insert_kicked(&mut self, kv: (K, V)) -> InsertResult<K, V> {
-        let (k, v) = kv;
-        {
-            let h1 = self.hash1(&k);
-            let bucket = &mut self.buckets[h1];
-            let slot = bucket.get_slot(&k);
-
-            match slot {
-                None => {
-                    *slot = Some((k, v));
-                    println!("Inserted into {}", h1);
-                    return InsertResult::None;
-                },
-                Some(existing) => {
-                    if existing.0 == k {
-                        let prev = mem::replace(&mut existing.1, v);
-                        return InsertResult::Replaced(prev);
-                    }
-                }
-            }
-        }
-
-        let h2 = self.hash2(&k);
-        let bucket = &mut self.buckets[h2];
-        let slot = bucket.get_slot(&k);
-
-        match slot {
-            None => {
-                *slot = Some((k, v));
-                return InsertResult::None;
-            },
-            Some(existing) => {
-                if existing.0 == k {
-                    let prev = mem::replace(&mut existing.1, v);
-                    InsertResult::Replaced(prev)
-                } else {
-                    let (k, v) = mem::replace(existing, (k, v));
-                    InsertResult::Kicked(k, v)
-                }
-            }
-        }
-    }
-
-    pub fn get<Q: ?Sized>(&self, k: &Q) -> Option<&V>
+    pub fn get<'a, Q>(&'a self, key: &Q) -> Option<&'a V>
         where
             K: Borrow<Q>,
             Q: Hash + Eq,
     {
-        let h1 = self.hash1(k);
-        let bucket = &self.buckets[h1];
-        let s = bucket.get(k);
-        if s.is_some() {
-            return s;
+        let hashkey = self.hash(key);
+        let slot = find_slot(&self.table, &hashkey, |k| k.borrow() == key);
+        if slot.slot_status == SlotStatus::Match {
+            slot.val().as_ref().map(|(_, v)| v)
+        } else {
+            None
         }
-
-        let h2 = self.hash2(k);
-        let bucket = &self.buckets[h2];
-        bucket.get(k)
     }
 
-    fn hash1<Q: Hash + ?Sized>(&self, k: &Q) -> usize {
-        let mut hasher = self.hash_builder1.build_hasher();
-        k.hash(&mut hasher);
-        hasher.finish() as usize % self.buckets.len()
+    pub fn remove<Q>(&mut self, key: &Q) -> Option<V>
+        where
+            K: Borrow<Q>,
+            Q: Hash + Eq,
+    {
+        let hashkey = self.hash(key);
+        let mut slot = find_slot(&mut self.table, &hashkey, |k| k.borrow() == key);
+        if slot.slot_status == SlotStatus::Match {
+            slot.remove().map(|(_, v)| v)
+        } else {
+            None
+        }
     }
 
-    fn hash2<Q: Hash + ?Sized>(&self, k: &Q) -> usize {
-        let mut hasher = self.hash_builder2.build_hasher();
-        k.hash(&mut hasher);
-        hasher.finish() as usize % self.buckets.len()
+    fn hash<Q: Hash>(&self, key: &Q) -> HashKey {
+        let mut hasher = self.state.build_hasher();
+        key.hash(&mut hasher);
+        let hash = hasher.finish() as usize;
+        let partial = create_partial(hash);
+        HashKey {
+            hash,
+            partial,
+        }
+    }
+}
+
+pub enum Entry<'a, K, V>
+    where
+        K: 'a + Hash + Eq,
+        V: 'a,
+{
+    Occupied(OccupiedEntry<'a, K, V>),
+    Vacant(VacantEntry<'a, K, V>),
+}
+
+impl<'a, K: Hash + Eq, V> Entry<'a, K, V> {
+    pub fn or_insert(self, default: V) -> &'a mut V {
+        unimplemented!()
+    }
+
+    pub fn or_insert_with<F: FnOnce() -> V>(self, default: F) -> &'a mut V {
+        unimplemented!()
+    }
+
+    pub fn key(&self) -> &K {
+        unimplemented!()
+    }
+
+    pub fn and_modify<F>(self, f: F) -> Self
+        where
+            F: FnOnce(&mut V),
+    {
+        unimplemented!()
+    }
+}
+
+impl<'a, K: Hash + Eq, V: Default> Entry<'a, K, V> {
+    pub fn or_default(self) -> &'a mut V {
+        unimplemented!()
+    }
+}
+
+pub struct OccupiedEntry<'a, K, V>
+    where
+        K: 'a + Hash + Eq,
+        V: 'a,
+{
+    map: &'a mut CuckooHashMap<K, V>
+}
+
+pub struct VacantEntry<'a, K, V>
+    where
+        K: 'a + Hash + Eq,
+        V: 'a,
+{
+    key: K,
+    hashkey: HashKey,
+    slot: Slot<&'a mut Table<K, V>>,
+}
+
+impl<'a, K, V> VacantEntry<'a, K, V>
+    where
+        K: 'a + Hash + Eq,
+        V: 'a,
+{
+    pub fn key(&self) -> &K {
+        &self.key
+    }
+
+    pub fn into_key(self) -> K {
+        self.key
+    }
+
+    pub fn insert(self, value: V) -> &'a mut V {
+        debug_assert_eq!(
+            self.slot.slot_status,
+            SlotStatus::Open,
+            "Expected slot in VacantEntry to be Open");
+        
+        let mut slot = self.slot;
+        slot.insert(&self.hashkey, self.key, value);
+        slot.val_mut()
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::CuckooHashMap;
+mod internal_tests {
+    use super::*;
 
     #[test]
-    fn basics() {
-        let mut map = CuckooHashMap::new();
-        map.insert(1, "foo".to_string());
-        map.insert(2, "bar".to_string());
+    fn table_basics() {
+        let mut table = Table::new();
+        let hashkey = HashKey::new(7832, create_partial(7832));
+        println!("hashkey = {:?}", hashkey);
 
-        assert_eq!(Some(&"foo".to_string()), map.get(&1));
+        {
+            let mut slot = find_slot(&mut table, &hashkey, |k| *k == 4);
+            println!("Slot status = {:?}", slot.slot_status);
+            slot.insert(&hashkey, 4, "hello".to_string());
+        }
+
+        let slot = find_slot(&table, &hashkey, |k| {
+            println!("k = {:?}", *k);
+            *k == 4
+        });
+        println!("Slot status = {:?}", slot.slot_status);
+        assert_eq!(SlotStatus::Match, slot.slot_status);
+
+        let v = slot.val();
+        assert_eq!(&Some((4, "hello".to_string())), v);
     }
 
     #[test]
-    fn insert() {
-        let mut map = CuckooHashMap::new();
-        map.insert(1, "foo".to_string());
-        assert_eq!(Some(&"foo".to_string()), map.get(&1));
+    fn hashkey_invertable() {
+        let table_size = 128;
+        let hashkey = HashKey::new(74839, create_partial(74839));
+        let index = hashkey.index(table_size);
+        let alt_index = hashkey.alt_index(table_size);
 
-        let prev = map.insert(1, "bar".to_string());
-        assert_eq!(Some("foo".to_string()), prev);
-        assert_eq!(Some(&"bar".to_string()), map.get(&1));
+        let hashkey = HashKey::new(alt_index, hashkey.partial);
+        assert_eq!(index, hashkey.alt_index(table_size));
     }
+/*
+*/
+/*
+    #[test]
+    fn vacant_entry_key() {
+        let mut map: CuckooHashMap<i32, String> = CuckooHashMap::new();
+        let entry = map.entry(1);
+        if let Entry::Vacant(vacant) = entry {
+            assert_eq!(&1, vacant.key());
+            assert_eq!(1, vacant.into_key());
+        } else {
+            panic!("Expected vacant entry")
+        }
+    }
+
+    #[test]
+    fn vacant_entry_insert() {
+        let mut map = CuckooHashMap::new();
+        let entry = map.entry(1);
+        if let Entry::Vacant(vacant) = entry {
+            assert_eq!(
+                &"value".to_string(),
+                vacant.insert("value".to_string()));
+        } else {
+            panic!("Expected vacant entry")
+        }
+    }
+*/
 }
