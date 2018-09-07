@@ -444,6 +444,40 @@ pub struct OccupiedEntry<'a, K, V>
     map: &'a mut CuckooHashMap<K, V>
 }
 
+impl<'a, K, V> OccupiedEntry<'a, K, V>
+    where
+        K: 'a + Hash + Eq,
+        V: 'a,
+{
+    pub fn key(&self) -> &K {
+        unimplemented!();
+    }
+
+    pub fn remove_entry(self) -> (K, V) {
+        unimplemented!();
+    }
+
+    pub fn get(&self) -> &V {
+        unimplemented!();
+    }
+
+    pub fn get_mut(&mut self) -> &mut V {
+        unimplemented!();
+    }
+
+    pub fn into_mut(self) -> &'a mut V {
+        unimplemented!();
+    }
+
+    pub fn insert(&mut self, value: V) -> V {
+        unimplemented!();
+    }
+
+    pub fn remove(self) -> V {
+        unimplemented!();
+    }
+}
+
 pub struct VacantEntry<'a, K, V>
     where
         K: 'a + Hash + Eq,
@@ -474,7 +508,11 @@ impl<'a, K, V> VacantEntry<'a, K, V>
             "Expected slot in VacantEntry to be Open");
         
         let mut slot = self.slot;
-        slot.insert(&self.hashkey, self.key, value);
+        insert_loop(
+            &mut slot,
+            &self.hashkey,
+            self.key,
+            value);
         slot.val_mut()
     }
 }
