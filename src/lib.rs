@@ -665,31 +665,155 @@ impl<'a, K, V> OccupiedEntry<'a, K, V>
         K: 'a + Eq,
         V: 'a,
 {
+    /// Gets a reference to the key in the entry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::CuckooHashMap;
+    ///
+    /// let mut map: CuckooHashMap<&str, u32> = CuckooHashMap::new();
+    /// map.entry("poneyland").or_insert(12);
+    /// assert_eq!(map.entry("poneyland").key(), &"poneyland");
+    /// ```
     pub fn key(&self) -> &K {
         &self.key
     }
 
+    /// Take the ownership of the key and value from the map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::{CuckooHashMap, Entry};
+    ///
+    /// let mut map: CuckooHashMap<&str, u32> = CuckooHashMap::new();
+    /// map.entry("poneyland").or_insert(12);
+    ///
+    /// if let Entry::Occupied(o) = map.entry("poneyland") {
+    ///     // We delete the entry from the map.
+    ///     o.remove_entry();
+    /// }
+    ///
+    /// // assert_eq!(map.contains_key("poneyland"), false); // TODO use this when contains_key is implemented
+    /// assert_eq!(map.get("poneyland"), None);
+    /// ```
     pub fn remove_entry(self) -> (K, V) {
         let mut slot = self.slot;
         slot.remove().unwrap()
     }
 
+    /// Gets a reference to the value in the entry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::{CuckooHashMap, Entry};
+    ///
+    /// let mut map: CuckooHashMap<&str, u32> = CuckooHashMap::new();
+    /// map.entry("poneyland").or_insert(12);
+    ///
+    /// if let Entry::Occupied(o) = map.entry("poneyland") {
+    ///     assert_eq!(o.get(), &12);
+    /// }
+    /// ```
     pub fn get(&self) -> &V {
         self.slot.val()
     }
 
+    /// Gets a mutable reference to the value in the entry.
+    ///
+    /// If you need a reference to the `OccupiedEntry` which may outlive the
+    /// destruction of the `Entry` value, see [`into_mut`].
+    ///
+    /// [`into_mut`]: #method.into_mut
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::{CuckooHashMap, Entry};
+    ///
+    /// let mut map: CuckooHashMap<&str, u32> = CuckooHashMap::new();
+    /// map.entry("poneyland").or_insert(12);
+    ///
+    /// assert_eq!(map["poneyland"], 12);
+    /// if let Entry::Occupied(mut o) = map.entry("poneyland") {
+    ///     *o.get_mut() += 10;
+    ///     assert_eq!(*o.get(), 22);
+    ///
+    ///     // We can use the same Entry multiple times.
+    ///     *o.get_mut() += 2;
+    /// }
+    ///
+    /// assert_eq!(map["poneyland"], 24);
+    /// ```
     pub fn get_mut(&mut self) -> &mut V {
         self.slot.val_mut()
     }
 
+    /// Converts the OccupiedEntry into a mutable reference to the value in the entry
+    /// with a lifetime bound to the map itself.
+    ///
+    /// If you need multiple references to the `OccupiedEntry`, see [`get_mut`].
+    ///
+    /// [`get_mut`]: #method.get_mut
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::{CuckooHashMap, Entry};
+    ///
+    /// let mut map: CuckooHashMap<&str, u32> = CuckooHashMap::new();
+    /// map.entry("poneyland").or_insert(12);
+    ///
+    /// assert_eq!(map["poneyland"], 12);
+    /// if let Entry::Occupied(o) = map.entry("poneyland") {
+    ///     *o.into_mut() += 10;
+    /// }
+    ///
+    /// assert_eq!(map["poneyland"], 22);
+    /// ```
     pub fn into_mut(self) -> &'a mut V {
         self.slot.into_val_mut()
     }
 
+    /// Sets the value of the entry, and returns the entry's old value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::{CuckooHashMap, Entry};
+    ///
+    /// let mut map: CuckooHashMap<&str, u32> = CuckooHashMap::new();
+    /// map.entry("poneyland").or_insert(12);
+    ///
+    /// if let Entry::Occupied(mut o) = map.entry("poneyland") {
+    ///     assert_eq!(o.insert(15), 12);
+    /// }
+    ///
+    /// assert_eq!(map["poneyland"], 15);
+    /// ```
     pub fn insert(&mut self, value: V) -> V {
         std::mem::replace(self.get_mut(), value)
     }
 
+    /// Takes the value out of the entry, and returns it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::{CuckooHashMap, Entry};
+    ///
+    /// let mut map: CuckooHashMap<&str, u32> = CuckooHashMap::new();
+    /// map.entry("poneyland").or_insert(12);
+    ///
+    /// if let Entry::Occupied(o) = map.entry("poneyland") {
+    ///     assert_eq!(o.remove(), 12);
+    /// }
+    ///
+    /// //assert_eq!(map.contains_key("poneyland"), false); // TODO enable when contains_key() is implemented
+    /// assert_eq!(map.get("poneyland"), None);
+    /// ```
     pub fn remove(self) -> V {
         self.remove_entry().1
     }
