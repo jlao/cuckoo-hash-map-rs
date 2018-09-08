@@ -176,6 +176,10 @@ impl<'m, K: 'm, V: 'm> Slot<&'m mut Table<K, V>>
     where
         K: Eq,
 {
+    fn val(&self) -> &V {
+        &self.table.buckets[self.bucket].slots[self.slot].as_ref().unwrap().1
+    }
+
     fn val_mut(self) -> &'m mut V {
         &mut self.table.buckets[self.bucket].slots[self.slot].as_mut().unwrap().1
     }
@@ -461,7 +465,7 @@ impl<'a, K, V> OccupiedEntry<'a, K, V>
     }
 
     pub fn get(&self) -> &V {
-        unimplemented!();
+        self.slot.val()
     }
 
     pub fn get_mut(&mut self) -> &mut V {
