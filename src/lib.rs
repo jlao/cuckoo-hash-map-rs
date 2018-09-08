@@ -4,9 +4,7 @@ use std::borrow::Borrow;
 use std::hash::Hash;
 use std::hash::{BuildHasher, Hasher};
 use std::collections::hash_map::RandomState;
-use std::fmt::Debug;
-use std::mem;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 
 #[derive(Debug)]
 pub struct CuckooHashMap<K, V>
@@ -178,6 +176,10 @@ impl<'m, K: 'm, V: 'm> Slot<&'m mut Table<K, V>>
 {
     fn val(&self) -> &V {
         &self.table.buckets[self.bucket].slots[self.slot].as_ref().unwrap().1
+    }
+
+    fn val_mut(&mut self) -> &mut V {
+        &mut self.table.buckets[self.bucket].slots[self.slot].as_mut().unwrap().1
     }
 
     fn into_val_mut(self) -> &'m mut V {
@@ -469,7 +471,7 @@ impl<'a, K, V> OccupiedEntry<'a, K, V>
     }
 
     pub fn get_mut(&mut self) -> &mut V {
-        unimplemented!();
+        self.slot.val_mut()
     }
 
     pub fn into_mut(self) -> &'a mut V {
