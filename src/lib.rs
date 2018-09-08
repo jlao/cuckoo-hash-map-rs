@@ -475,7 +475,7 @@ impl<'a, K, V> OccupiedEntry<'a, K, V>
     }
 
     pub fn into_mut(self) -> &'a mut V {
-        unimplemented!();
+        self.slot.into_val_mut()
     }
 
     pub fn insert(&mut self, value: V) -> V {
