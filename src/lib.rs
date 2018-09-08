@@ -180,7 +180,7 @@ impl<'m, K: 'm, V: 'm> Slot<&'m mut Table<K, V>>
         &self.table.buckets[self.bucket].slots[self.slot].as_ref().unwrap().1
     }
 
-    fn val_mut(self) -> &'m mut V {
+    fn into_val_mut(self) -> &'m mut V {
         &mut self.table.buckets[self.bucket].slots[self.slot].as_mut().unwrap().1
     }
 
@@ -520,7 +520,7 @@ impl<'a, K, V> VacantEntry<'a, K, V>
             &self.hashkey,
             self.key,
             value);
-        slot.val_mut()
+        slot.into_val_mut()
     }
 }
 
