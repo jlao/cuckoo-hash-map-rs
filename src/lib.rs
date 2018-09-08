@@ -437,6 +437,35 @@ impl<K, V> CuckooHashMap<K, V>
         }
     }
 
+    /// Returns true if the map contains a value for the specified key.
+    ///
+    /// The key may be any borrowed form of the map's key type, but
+    /// [`Hash`] and [`Eq`] on the borrowed form *must* match those for
+    /// the key type.
+    ///
+    /// [`Eq`]: ../../std/cmp/trait.Eq.html
+    /// [`Hash`]: ../../std/hash/trait.Hash.html
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::CuckooHashMap;
+    ///
+    /// let mut map = CuckooHashMap::new();
+    /// map.insert(1, "a");
+    /// assert_eq!(map.contains_key(&1), true);
+    /// assert_eq!(map.contains_key(&2), false);
+    /// ```
+    pub fn contains_key<Q: ?Sized>(&self, key: &Q) -> bool
+        where
+            K: Borrow<Q>,
+            Q: Hash + Eq,
+    {
+        let hashkey = self.hash(key);
+        let slot = find_slot(&self.table, &hashkey, |k| k.borrow() == key);
+        slot.slot_status == SlotStatus::Match
+    }
+
     /// Removes a key from the map, returning the stored key and value if the
     /// key was previously in the map.
     ///
@@ -695,8 +724,7 @@ impl<'a, K, V> OccupiedEntry<'a, K, V>
     ///     o.remove_entry();
     /// }
     ///
-    /// // assert_eq!(map.contains_key("poneyland"), false); // TODO use this when contains_key is implemented
-    /// assert_eq!(map.get("poneyland"), None);
+    /// assert_eq!(map.contains_key("poneyland"), false);
     /// ```
     pub fn remove_entry(self) -> (K, V) {
         let mut slot = self.slot;
@@ -811,8 +839,7 @@ impl<'a, K, V> OccupiedEntry<'a, K, V>
     ///     assert_eq!(o.remove(), 12);
     /// }
     ///
-    /// //assert_eq!(map.contains_key("poneyland"), false); // TODO enable when contains_key() is implemented
-    /// assert_eq!(map.get("poneyland"), None);
+    /// assert_eq!(map.contains_key("poneyland"), false);
     /// ```
     pub fn remove(self) -> V {
         self.remove_entry().1
