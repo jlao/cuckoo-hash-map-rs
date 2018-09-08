@@ -576,6 +576,16 @@ impl<'a, K, V> Entry<'a, K, V>
         }
     }
 
+    /// Returns a reference to this entry's key.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::CuckooHashMap;
+    ///
+    /// let mut map: CuckooHashMap<&str, u32> = CuckooHashMap::new();
+    /// assert_eq!(map.entry("poneyland").key(), &"poneyland");
+    /// ```
     pub fn key(&self) -> &K {
         match *self {
             Entry::Occupied(ref entry) => entry.key(),
@@ -583,6 +593,26 @@ impl<'a, K, V> Entry<'a, K, V>
         }
     }
 
+    /// Provides in-place mutable access to an occupied entry before any
+    /// potential inserts into the map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::CuckooHashMap;
+    ///
+    /// let mut map: CuckooHashMap<&str, u32> = CuckooHashMap::new();
+    ///
+    /// map.entry("poneyland")
+    ///    .and_modify(|e| { *e += 1 })
+    ///    .or_insert(42);
+    /// assert_eq!(map["poneyland"], 42);
+    ///
+    /// map.entry("poneyland")
+    ///    .and_modify(|e| { *e += 1 })
+    ///    .or_insert(42);
+    /// assert_eq!(map["poneyland"], 43);
+    /// ```
     pub fn and_modify<F>(self, f: F) -> Self
         where
             F: FnOnce(&mut V),
