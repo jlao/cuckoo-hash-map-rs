@@ -483,7 +483,7 @@ impl<'a, K, V> OccupiedEntry<'a, K, V>
     }
 
     pub fn remove(self) -> V {
-        unimplemented!();
+        self.remove_entry().1
     }
 }
 
