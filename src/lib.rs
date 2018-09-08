@@ -479,7 +479,7 @@ impl<'a, K, V> OccupiedEntry<'a, K, V>
     }
 
     pub fn insert(&mut self, value: V) -> V {
-        unimplemented!();
+        std::mem::replace(self.get_mut(), value)
     }
 
     pub fn remove(self) -> V {
