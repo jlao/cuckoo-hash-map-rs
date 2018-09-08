@@ -167,7 +167,7 @@ impl<'m, K: 'm, V: 'm> Slot<&'m Table<K, V>>
     where
         K: Eq,
 {
-    fn val(&self) -> &'m Option<(K, V)> {
+    fn raw_slot(&self) -> &'m Option<(K, V)> {
         &self.table.buckets[self.bucket].slots[self.slot]
     }
 }
@@ -354,7 +354,7 @@ impl<K, V> CuckooHashMap<K, V>
         let hashkey = self.hash(key);
         let slot = find_slot(&self.table, &hashkey, |k| k.borrow() == key);
         if slot.slot_status == SlotStatus::Match {
-            slot.val().as_ref().map(|(_, v)| v)
+            slot.raw_slot().as_ref().map(|(_, v)| v)
         } else {
             None
         }
@@ -441,7 +441,9 @@ pub struct OccupiedEntry<'a, K, V>
         K: 'a + Hash + Eq,
         V: 'a,
 {
-    map: &'a mut CuckooHashMap<K, V>
+    key: K,
+    hashkey: HashKey,
+    slot: Slot<&'a mut Table<K, V>>,
 }
 
 impl<'a, K, V> OccupiedEntry<'a, K, V>
@@ -450,11 +452,12 @@ impl<'a, K, V> OccupiedEntry<'a, K, V>
         V: 'a,
 {
     pub fn key(&self) -> &K {
-        unimplemented!();
+        &self.key
     }
 
     pub fn remove_entry(self) -> (K, V) {
-        unimplemented!();
+        let mut slot = self.slot;
+        slot.remove().unwrap()
     }
 
     pub fn get(&self) -> &V {
@@ -540,7 +543,7 @@ mod internal_tests {
         println!("Slot status = {:?}", slot.slot_status);
         assert_eq!(SlotStatus::Match, slot.slot_status);
 
-        let v = slot.val();
+        let v = slot.raw_slot();
         assert_eq!(&Some((4, "hello".to_string())), v);
     }
 
