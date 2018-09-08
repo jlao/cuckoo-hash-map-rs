@@ -628,8 +628,26 @@ impl<'a, K, V> Entry<'a, K, V>
 }
 
 impl<'a, K: Hash + Eq, V: Default> Entry<'a, K, V> {
+    /// Ensures a value is in the entry by inserting the default value if empty,
+    /// and returns a mutable reference to the value in the entry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() {
+    /// use cuckoo::CuckooHashMap;
+    ///
+    /// let mut map: CuckooHashMap<&str, Option<u32>> = CuckooHashMap::new();
+    /// map.entry("poneyland").or_default();
+    ///
+    /// assert_eq!(map["poneyland"], None);
+    /// # }
+    /// ```
     pub fn or_default(self) -> &'a mut V {
-        unimplemented!()
+        match self {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(Default::default()),
+        }
     }
 }
 
