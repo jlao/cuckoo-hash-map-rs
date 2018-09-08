@@ -4,7 +4,7 @@ use std::borrow::Borrow;
 use std::hash::Hash;
 use std::hash::{BuildHasher, Hasher};
 use std::collections::hash_map::RandomState;
-use std::ops::Deref;
+use std::ops::{Deref, Index};
 
 #[derive(Debug)]
 pub struct CuckooHashMap<K, V>
@@ -332,15 +332,29 @@ impl<K, V> CuckooHashMap<K, V>
         }
     }
 
-/*
     pub fn entry(&mut self, key: K) -> Entry<K, V> {
         let hashkey = self.hash(&key);
-        let mut slot = find_slot(
+        let slot = find_slot(
             &mut self.table,
             &hashkey,
             |k| k == &key);
+        
+        match slot.slot_status {
+            SlotStatus::Open | SlotStatus::Occupied => {
+                Entry::Vacant(VacantEntry {
+                    key,
+                    hashkey,
+                    slot,
+                })
+            },
+            SlotStatus::Match => {
+                Entry::Occupied(OccupiedEntry {
+                    key,
+                    slot,
+                })
+            }
+        }
     }
-*/
 
     pub fn insert(&mut self, key: K, val: V) -> Option<V> {
         let hashkey = self.hash(&key);
@@ -355,7 +369,7 @@ impl<K, V> CuckooHashMap<K, V>
     pub fn get<'a, Q>(&'a self, key: &Q) -> Option<&'a V>
         where
             K: Borrow<Q>,
-            Q: Hash + Eq,
+            Q: Hash + Eq + ?Sized,
     {
         let hashkey = self.hash(key);
         let slot = find_slot(&self.table, &hashkey, |k| k.borrow() == key);
@@ -394,7 +408,7 @@ impl<K, V> CuckooHashMap<K, V>
         }
     }
 
-    fn hash<Q: Hash>(&self, key: &Q) -> HashKey {
+    fn hash<Q: Hash + ?Sized>(&self, key: &Q) -> HashKey {
         let mut hasher = self.state.build_hasher();
         key.hash(&mut hasher);
         let hash = hasher.finish() as usize;
@@ -420,6 +434,22 @@ impl<'a, K, V> Entry<'a, K, V>
         K: 'a + Hash + Eq,
         V: 'a,
 {
+    /// Ensures a value is in the entry by inserting the default if empty, and returns
+    /// a mutable reference to the value in the entry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::CuckooHashMap;
+    ///
+    /// let mut map: CuckooHashMap<&str, u32> = CuckooHashMap::new();
+    /// map.entry("poneyland").or_insert(12);
+    ///
+    /// assert_eq!(map["poneyland"], 12);
+    ///
+    /// *map.entry("poneyland").or_insert(12) += 10;
+    /// assert_eq!(map["poneyland"], 22);
+    /// ```
     pub fn or_insert(self, default: V) -> &'a mut V {
         match self {
             Entry::Occupied(entry) => entry.into_mut(),
@@ -541,6 +571,18 @@ impl<'a, K, V> VacantEntry<'a, K, V>
             self.key,
             value);
         slot.into_val_mut()
+    }
+}
+
+impl<'a, K, Q: ?Sized, V> Index<&'a Q> for CuckooHashMap<K, V>
+where
+    K: Eq + Hash + Borrow<Q>,
+    Q: Eq + Hash,
+{
+    type Output = V;
+
+    fn index(&self, key: &Q) -> &V {
+        self.get(key).expect("no entry found for key")
     }
 }
 
