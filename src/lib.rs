@@ -834,14 +834,53 @@ impl<'a, K, V> VacantEntry<'a, K, V>
         K: 'a + Hash + Eq,
         V: 'a,
 {
+    /// Gets a reference to the key that would be used when inserting a value
+    /// through the `VacantEntry`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::{CuckooHashMap, Entry};
+    ///
+    /// let mut map: CuckooHashMap<&str, u32> = CuckooHashMap::new();
+    /// assert_eq!(map.entry("poneyland").key(), &"poneyland");
+    /// ```
     pub fn key(&self) -> &K {
         &self.key
     }
 
+    /// Take ownership of the key.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::{CuckooHashMap, Entry};
+    ///
+    /// let mut map: CuckooHashMap<&str, u32> = CuckooHashMap::new();
+    ///
+    /// if let Entry::Vacant(v) = map.entry("poneyland") {
+    ///     v.into_key();
+    /// }
+    /// ```
     pub fn into_key(self) -> K {
         self.key
     }
 
+    /// Sets the value of the entry with the VacantEntry's key,
+    /// and returns a mutable reference to it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::{CuckooHashMap, Entry};
+    ///
+    /// let mut map: CuckooHashMap<&str, u32> = CuckooHashMap::new();
+    ///
+    /// if let Entry::Vacant(o) = map.entry("poneyland") {
+    ///     o.insert(37);
+    /// }
+    /// assert_eq!(map["poneyland"], 37);
+    /// ```
     pub fn insert(self, value: V) -> &'a mut V {
         debug_assert_eq!(
             self.slot.slot_status,
