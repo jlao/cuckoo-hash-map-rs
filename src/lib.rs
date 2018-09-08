@@ -250,21 +250,18 @@ impl<'m, K: 'm, V: 'm> VacantSlot<&'m mut Table<K, V>>
 
         if let InsertResult::Displaced(displaced) = insert_result {
             let hashkey = displaced.hashkey();
-            let key = displaced.key;
-            let val = displaced.val;
             let mut slot = find_alt_slot(
                 &mut *self.table,
                 &hashkey,
-                |k| k == &key);
+                |k| k == &displaced.key);
 
-            insert_loop(&mut slot, &hashkey, key, val);
+            insert_loop(&mut slot, &hashkey, displaced.key, displaced.val);
         }
     }
 
     fn insert_and_displace(&mut self, hashkey: &HashKey, key: K, val: V) -> InsertResult<K, V>
     {
-        let prev_partial = *self.partial_mut();
-        *self.partial_mut() = hashkey.partial;
+        let prev_partial = std::mem::replace(self.partial_mut(), hashkey.partial);
         std::mem::replace(self.raw_slot_mut(), Some((key, val))).map_or_else(
             || {
                 InsertResult::Open
