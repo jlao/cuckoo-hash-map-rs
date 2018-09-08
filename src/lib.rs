@@ -463,17 +463,16 @@ impl<'a, K: Hash + Eq, V: Default> Entry<'a, K, V> {
 
 pub struct OccupiedEntry<'a, K, V>
     where
-        K: 'a + Hash + Eq,
+        K: 'a + Eq,
         V: 'a,
 {
     key: K,
-    hashkey: HashKey,
     slot: Slot<&'a mut Table<K, V>>,
 }
 
 impl<'a, K, V> OccupiedEntry<'a, K, V>
     where
-        K: 'a + Hash + Eq,
+        K: 'a + Eq,
         V: 'a,
 {
     pub fn key(&self) -> &K {
