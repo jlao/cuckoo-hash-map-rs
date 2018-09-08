@@ -78,7 +78,6 @@ fn find_slot<K, V, M, F>(table: M, hashkey: &HashKey, is_match: F)
 {
     // Look in first bucket
     let b1_index = hashkey.index(table.size());
-    println!("Looking in bucket {}", b1_index);
     let (b1_slot, b1_slot_status) =
         table.buckets[b1_index].find_slot(hashkey, &is_match);
 
@@ -88,7 +87,6 @@ fn find_slot<K, V, M, F>(table: M, hashkey: &HashKey, is_match: F)
 
     // Look in second bucket
     let b2_index = hashkey.alt_index(table.size());
-    println!("Looking in bucket {}", b2_index);
     let (b2_slot, b2_slot_status) =
         table.buckets[b2_index].find_slot(hashkey, &is_match);
 
@@ -286,16 +284,12 @@ impl<K, V> Bucket<K, V>
         let mut open_slot = None;
 
         for i in 0..self.slots.len() {
-            println!("Looking in slot {}", i);
-
             if self.partials[i] == 0 {
                 open_slot = Some(i);
-                println!("Partial is 0 in bucket {}", i);
                 continue;
             }
 
             if self.partials[i] != hashkey.partial {
-                println!("Partial is {} in bucket {}", hashkey.partial, i);
                 continue;
             }
 
@@ -594,19 +588,15 @@ mod internal_tests {
     fn table_basics() {
         let mut table = Table::new();
         let hashkey = HashKey::new(7832, create_partial(7832));
-        println!("hashkey = {:?}", hashkey);
 
         {
             let mut slot = find_slot(&mut table, &hashkey, |k| *k == 4);
-            println!("Slot status = {:?}", slot.slot_status);
             slot.insert(&hashkey, 4, "hello".to_string());
         }
 
         let slot = find_slot(&table, &hashkey, |k| {
-            println!("k = {:?}", *k);
             *k == 4
         });
-        println!("Slot status = {:?}", slot.slot_status);
         assert_eq!(SlotStatus::Match, slot.slot_status);
 
         let v = slot.raw_slot();
