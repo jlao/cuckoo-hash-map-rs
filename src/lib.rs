@@ -415,24 +415,43 @@ pub enum Entry<'a, K, V>
     Vacant(VacantEntry<'a, K, V>),
 }
 
-impl<'a, K: Hash + Eq, V> Entry<'a, K, V> {
+impl<'a, K, V> Entry<'a, K, V>
+    where
+        K: 'a + Hash + Eq,
+        V: 'a,
+{
     pub fn or_insert(self, default: V) -> &'a mut V {
-        unimplemented!()
+        match self {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(default),
+        }
     }
 
     pub fn or_insert_with<F: FnOnce() -> V>(self, default: F) -> &'a mut V {
-        unimplemented!()
+        match self {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(default()),
+        }
     }
 
     pub fn key(&self) -> &K {
-        unimplemented!()
+        match *self {
+            Entry::Occupied(ref entry) => entry.key(),
+            Entry::Vacant(ref entry) => entry.key(),
+        }
     }
 
     pub fn and_modify<F>(self, f: F) -> Self
         where
             F: FnOnce(&mut V),
     {
-        unimplemented!()
+        match self {
+            Entry::Occupied(mut entry) => {
+                f(entry.get_mut());
+                Entry::Occupied(entry)
+            },
+            Entry::Vacant(entry) => Entry::Vacant(entry),
+        }
     }
 }
 
