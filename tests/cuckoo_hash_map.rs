@@ -23,12 +23,14 @@ fn insert() {
     assert_eq!(
         Some("hello".to_string()),
         prev,
-        "insert() did not return previous value when replacing");
+        "insert() did not return previous value when replacing"
+    );
 
     assert_eq!(
         Some(&"bonjour".to_string()),
         map.get(&1),
-        "value did not get replaced");
+        "value did not get replaced"
+    );
 }
 
 #[test]
