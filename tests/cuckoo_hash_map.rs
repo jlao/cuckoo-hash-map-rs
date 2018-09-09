@@ -141,17 +141,35 @@ fn iter_mut() {
 
     for i in 0..5 {
         map.insert(i.to_string(), i);
+        expected.insert((i.to_string(), i * 2));
     }
 
     for (key, val) in map.iter_mut() {
         *val *= 2;
-        expected.insert((key.clone(), val.clone()));
     }
 
     let actual: HashSet<_> = map.iter()
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
 
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn values_mut() {
+    let mut map = CuckooHashMap::new();
+    let mut expected = HashSet::new();
+
+    for i in 0..5 {
+        map.insert(i.to_string(), i);
+        expected.insert(i * 2);
+    }
+
+    for val in map.values_mut() {
+        *val *= 2;
+    }
+
+    let actual: HashSet<_> = map.values().cloned().collect();
     assert_eq!(actual, expected);
 }
 

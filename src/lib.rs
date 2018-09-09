@@ -893,6 +893,32 @@ where
         }
     }
 
+    /// An iterator visiting all values mutably in arbitrary order.
+    /// The iterator element type is `&'a mut V`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::CuckooHashMap;
+    ///
+    /// let mut map = CuckooHashMap::new();
+    ///
+    /// map.insert("a", 1);
+    /// map.insert("b", 2);
+    /// map.insert("c", 3);
+    ///
+    /// for val in map.values_mut() {
+    ///     *val = *val + 10;
+    /// }
+    ///
+    /// for val in map.values() {
+    ///     println!("{}", val);
+    /// }
+    /// ```
+    pub fn values_mut(&mut self) -> ValuesMut<K, V> {
+        ValuesMut { inner: self.iter_mut() }
+    }
+
     fn hash<Q: Hash + ?Sized>(&self, key: &Q) -> HashKey {
         let mut hasher = self.state.build_hasher();
         key.hash(&mut hasher);
@@ -959,6 +985,18 @@ impl<'a, K: 'a + Eq, V: 'a> Iterator for IterMut<'a, K, V> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
+    }
+}
+
+pub struct ValuesMut<'a, K: 'a + Eq, V: 'a> {
+    inner: IterMut<'a, K, V>,
+}
+
+impl<'a, K: 'a + Eq, V: 'a> Iterator for ValuesMut<'a, K, V> {
+    type Item = &'a mut V;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|(_, v)| v)
     }
 }
 
