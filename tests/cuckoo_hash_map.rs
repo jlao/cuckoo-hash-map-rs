@@ -53,3 +53,18 @@ fn remove_entry() {
     assert_eq!(map.remove_entry(&1), Some((1, "hello".to_string())));
     assert_eq!(map.remove(&1), None);
 }
+
+#[test]
+fn insert_more_than_capacity() {
+    const NUM_ITEMS: u32 = 128 * 4 + 1;
+
+    let mut map = CuckooHashMap::new();
+
+    for i in 0..NUM_ITEMS {
+        assert_eq!(map.insert(i, i.to_string()), None);
+    }
+
+    for i in 0..NUM_ITEMS {
+        assert_eq!(map.get(&i), Some(&i.to_string()));
+    }
+}

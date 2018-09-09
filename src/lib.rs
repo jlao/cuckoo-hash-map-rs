@@ -2,9 +2,12 @@ extern crate rand;
 
 use std::borrow::Borrow;
 use std::collections::hash_map::RandomState;
+use std::fmt;
 use std::hash::Hash;
 use std::hash::{BuildHasher, Hasher};
 use std::ops::{Deref, Index};
+
+const MAX_DISPLACEMENTS: u8 = 100;
 
 #[derive(Debug)]
 pub struct CuckooHashMap<K, V>
@@ -177,6 +180,7 @@ struct MatchSlot<M> {
 enum InsertResult<K, V> {
     Open,
     Displaced(Displaced<K, V>),
+    NeedResize(Displaced<K, V>),
 }
 
 struct Displaced<K, V> {
@@ -272,7 +276,8 @@ where
             let hashkey = displaced.hashkey();
             let mut slot = find_alt_slot(&mut *self.table, &hashkey, |k| k == &displaced.key);
 
-            insert_loop(&mut slot, &hashkey, displaced.key, displaced.val);
+            insert_loop(&mut slot, &hashkey, displaced.key, displaced.val, 0)
+                .expect("No displacements needed for vacant slot");
         }
     }
 
@@ -317,7 +322,17 @@ where
     K: Eq,
 {
     fn insert(&mut self, hashkey: &HashKey, key: K, val: V) -> Option<V> {
-        insert_loop(self, hashkey, key, val)
+        insert_loop(self, hashkey, key, val, MAX_DISPLACEMENTS).expect("too many displacements")
+    }
+}
+
+struct ResizeError<K, V> {
+    displaced: (K, V)
+}
+
+impl<K, V> fmt::Debug for ResizeError<K, V> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_struct("ResizeError").finish()
     }
 }
 
@@ -326,18 +341,28 @@ fn insert_loop<K, V>(
     hashkey: &HashKey,
     key: K,
     val: V,
-) -> Option<V>
+    max_displacements: u8,
+) -> Result<Option<V>, ResizeError<K, V>>
 where
     K: Eq,
 {
+    let mut num_displacements = 0;
+
     match slot {
         Slot::Match(mslot) => {
-            return Some(mslot.insert(hashkey, val));
+            return Ok(Some(mslot.insert(hashkey, val)));
         }
         Slot::Vacant(vslot) => {
             let mut insert_result = vslot.insert_and_displace(hashkey, key, val);
 
             while let InsertResult::Displaced(displaced) = insert_result {
+                num_displacements += 1;
+                if num_displacements >= max_displacements {
+                    return Err(ResizeError {
+                        displaced: (displaced.key, displaced.val),
+                    });
+                }
+
                 let hashkey = displaced.hashkey();
                 let mut slot = find_alt_slot(&mut *vslot.table, &hashkey, |k| k == &displaced.key);
 
@@ -350,7 +375,7 @@ where
                 }
             }
 
-            None
+            Ok(None)
         }
     }
 }
