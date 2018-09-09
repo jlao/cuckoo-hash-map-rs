@@ -95,6 +95,27 @@ fn iter() {
 }
 
 #[test]
+fn iter_mut() {
+    let mut map = CuckooHashMap::new();
+    let mut expected = HashSet::new();
+
+    for i in 0..5 {
+        map.insert(i.to_string(), i);
+    }
+
+    for (key, val) in map.iter_mut() {
+        *val *= 2;
+        expected.insert((key.clone(), val.clone()));
+    }
+
+    let actual: HashSet<_> = map.iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+
+    assert_eq!(actual, expected);
+}
+
+#[test]
 #[ignore]
 fn insert_more_than_capacity() {
     const NUM_ITEMS: u32 = 128 * 4 + 1;

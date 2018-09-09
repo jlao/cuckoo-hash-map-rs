@@ -5,7 +5,9 @@ use std::collections::hash_map::RandomState;
 use std::fmt;
 use std::hash::Hash;
 use std::hash::{BuildHasher, Hasher};
+use std::iter;
 use std::ops::{Deref, Index};
+use std::slice;
 
 const MAX_DISPLACEMENTS: u8 = 100;
 
@@ -88,6 +90,13 @@ where
             table: self,
         }
     }
+
+    fn iter_mut(&mut self) -> TableIterMut<K, V> {
+        TableIterMut {
+            buckets: self.buckets.iter_mut().fuse(),
+            slots: None,
+        }
+    }
 }
 
 struct TableIter<'a, K: 'a + Eq, V: 'a> {
@@ -116,6 +125,34 @@ impl<'a, K: 'a + Eq, V: 'a> Iterator for TableIter<'a, K, V> {
         }
 
         None
+    }
+}
+
+struct TableIterMut<'a, K: 'a + Eq, V: 'a> {
+    buckets: iter::Fuse<slice::IterMut<'a, Bucket<K, V>>>,
+    slots: Option<iter::Fuse<slice::IterMut<'a, RawSlot<K, V>>>>,
+}
+
+impl<'a, K: 'a + Eq, V: 'a> Iterator for TableIterMut<'a, K, V> {
+    type Item = (&'a K, &'a mut V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(ref mut slots) = self.slots {
+                while let Some(slot) = slots.next() {
+                    if let Some((k, v)) = slot {
+                        return Some((k, v));
+                    }
+                }
+            }
+
+            if let Some(bucket) = self.buckets.next() {
+                self.slots = Some(bucket.slots.iter_mut().fuse());
+            } else {
+                self.slots = None;
+                return None;
+            }
+        }
     }
 }
 
@@ -735,6 +772,35 @@ where
         }
     }
 
+    /// An iterator visiting all key-value pairs in arbitrary order,
+    /// with mutable references to the values.
+    /// The iterator element type is `(&'a K, &'a mut V)`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::CuckooHashMap;
+    ///
+    /// let mut map = CuckooHashMap::new();
+    /// map.insert("a", 1);
+    /// map.insert("b", 2);
+    /// map.insert("c", 3);
+    ///
+    /// // Update all values
+    /// for (_, val) in map.iter_mut() {
+    ///     *val *= 2;
+    /// }
+    ///
+    /// for (key, val) in &map {
+    ///     println!("key: {} val: {}", key, val);
+    /// }
+    /// ```
+    pub fn iter_mut(&mut self) -> IterMut<K, V> {
+        IterMut {
+            inner: self.table.iter_mut(),
+        }
+    }
+
     fn hash<Q: Hash + ?Sized>(&self, key: &Q) -> HashKey {
         let mut hasher = self.state.build_hasher();
         key.hash(&mut hasher);
@@ -744,12 +810,36 @@ where
     }
 }
 
+impl<'a, K, V> IntoIterator for &'a CuckooHashMap<K, V>
+where
+    K: Eq + Hash,
+{
+    type Item = (&'a K, &'a V);
+    type IntoIter = Iter<'a, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 pub struct Iter<'a, K: 'a + Eq, V: 'a> {
     inner: TableIter<'a, K, V>,
 }
 
 impl<'a, K: 'a + Eq, V: 'a> Iterator for Iter<'a, K, V> {
     type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+}
+
+pub struct IterMut<'a, K: 'a + Eq, V: 'a> {
+    inner: TableIterMut<'a, K, V>,
+}
+
+impl<'a, K: 'a + Eq, V: 'a> Iterator for IterMut<'a, K, V> {
+    type Item = (&'a K, &'a mut V);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
