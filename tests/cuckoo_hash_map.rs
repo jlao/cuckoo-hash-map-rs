@@ -55,6 +55,29 @@ fn remove_entry() {
 }
 
 #[test]
+fn len() {
+    let mut map = CuckooHashMap::new();
+    assert_eq!(map.len(), 0);
+
+    for i in 1..10 {
+        map.insert(i, i.to_string());
+        assert_eq!(map.len(), i);
+    }
+
+    let mut expected_len = map.len();
+    for i in 1..5 {
+        map.remove(&i);
+        expected_len -= 1;
+        assert_eq!(map.len(), expected_len);
+    }
+
+    map.insert(42, 42.to_string());
+    expected_len += 1;
+    assert_eq!(map.len(), expected_len);
+}
+
+#[test]
+#[ignore]
 fn insert_more_than_capacity() {
     const NUM_ITEMS: u32 = 128 * 4 + 1;
 

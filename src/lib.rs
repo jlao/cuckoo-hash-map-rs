@@ -62,6 +62,7 @@ struct Table<K, V>
 where
     K: Eq,
 {
+    size: usize,
     buckets: Vec<Bucket<K, V>>,
 }
 
@@ -71,6 +72,7 @@ where
 {
     fn new() -> Table<K, V> {
         Table {
+            size: 0,
             buckets: (0..INITIAL_SIZE).map(|_| Bucket::new()).collect(),
         }
     }
@@ -231,6 +233,7 @@ where
     }
 
     fn remove(&mut self) -> Option<(K, V)> {
+        self.table.size -= 1;
         self.table.buckets[self.bucket].slots[self.slot].take()
     }
 
@@ -271,13 +274,14 @@ where
 
     fn insert(&mut self, hashkey: &HashKey, key: K, val: V) {
         let insert_result = self.insert_and_displace(hashkey, key, val);
+        self.table.size += 1;
 
         if let InsertResult::Displaced(displaced) = insert_result {
             let hashkey = displaced.hashkey();
             let mut slot = find_alt_slot(&mut *self.table, &hashkey, |k| k == &displaced.key);
 
-            insert_loop(&mut slot, &hashkey, displaced.key, displaced.val, 0)
-                .expect("No displacements needed for vacant slot");
+            insert_loop(&mut slot, &hashkey, displaced.key, displaced.val, MAX_DISPLACEMENTS - 1)
+                .expect("too many displacements");
         }
     }
 
@@ -294,45 +298,6 @@ where
                 })
             },
         )
-    }
-}
-
-impl<'m, K: 'm, V: 'm, M: 'm> Slot<M>
-where
-    K: Eq,
-    M: Deref<Target = Table<K, V>>,
-{
-    fn is_match(&self) -> bool {
-        match self {
-            Slot::Match(_) => true,
-            _ => false,
-        }
-    }
-
-    fn is_vacant(&self) -> bool {
-        match self {
-            Slot::Vacant(_) => true,
-            _ => false,
-        }
-    }
-}
-
-impl<'m, K: 'm, V: 'm> Slot<&'m mut Table<K, V>>
-where
-    K: Eq,
-{
-    fn insert(&mut self, hashkey: &HashKey, key: K, val: V) -> Option<V> {
-        insert_loop(self, hashkey, key, val, MAX_DISPLACEMENTS).expect("too many displacements")
-    }
-}
-
-struct ResizeError<K, V> {
-    displaced: (K, V)
-}
-
-impl<K, V> fmt::Debug for ResizeError<K, V> {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        fmt.debug_struct("ResizeError").finish()
     }
 }
 
@@ -377,6 +342,51 @@ where
 
             Ok(None)
         }
+    }
+}
+
+impl<'m, K: 'm, V: 'm, M: 'm> Slot<M>
+where
+    K: Eq,
+    M: Deref<Target = Table<K, V>>,
+{
+    fn is_match(&self) -> bool {
+        match self {
+            Slot::Match(_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_vacant(&self) -> bool {
+        match self {
+            Slot::Vacant(_) => true,
+            _ => false,
+        }
+    }
+}
+
+impl<'m, K: 'm, V: 'm> Slot<&'m mut Table<K, V>>
+where
+    K: Eq,
+{
+    fn insert(&mut self, hashkey: &HashKey, key: K, val: V) -> Option<V> {
+        match self {
+            Slot::Match(mslot) => Some(mslot.insert(hashkey, val)),
+            Slot::Vacant(vslot) => {
+                vslot.insert(hashkey, key, val);
+                None
+            }
+        }
+    }
+}
+
+struct ResizeError<K, V> {
+    displaced: (K, V)
+}
+
+impl<K, V> fmt::Debug for ResizeError<K, V> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_struct("ResizeError").finish()
     }
 }
 
@@ -646,6 +656,22 @@ where
             Slot::Match(ref mut match_slot) => match_slot.remove(),
             _ => None,
         }
+    }
+
+    /// Returns the number of elements in the map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::CuckooHashMap;
+    ///
+    /// let mut a = CuckooHashMap::new();
+    /// assert_eq!(a.len(), 0);
+    /// a.insert(1, "a");
+    /// assert_eq!(a.len(), 1);
+    /// ```
+    pub fn len(&self) -> usize {
+        self.table.size
     }
 
     fn hash<Q: Hash + ?Sized>(&self, key: &Q) -> HashKey {
