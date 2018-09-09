@@ -22,7 +22,14 @@ struct HashKey {
 }
 
 impl HashKey {
-    fn new(hash: usize, partial: u8) -> HashKey {
+    fn new(hash: usize) -> HashKey {
+        HashKey {
+            hash,
+            partial: create_partial(hash),
+        }
+    }
+
+    fn with_partial(hash: usize, partial: u8) -> HashKey {
         HashKey { hash, partial }
     }
 
@@ -181,7 +188,7 @@ struct Displaced<K, V> {
 
 impl<K, V> Displaced<K, V> {
     fn hashkey(&self) -> HashKey {
-        HashKey::new(self.bucket, self.partial)
+        HashKey::with_partial(self.bucket, self.partial)
     }
 }
 
@@ -1018,7 +1025,7 @@ mod internal_tests {
     #[test]
     fn table_basics() {
         let mut table = Table::new();
-        let hashkey = HashKey::new(7832, create_partial(7832));
+        let hashkey = HashKey::new(7832);
 
         {
             let mut slot = find_slot(&mut table, &hashkey, |k| *k == 4);
@@ -1033,11 +1040,11 @@ mod internal_tests {
     #[test]
     fn hashkey_invertable() {
         let table_size = 128;
-        let hashkey = HashKey::new(74839, create_partial(74839));
+        let hashkey = HashKey::new(74839);
         let index = hashkey.index(table_size);
         let alt_index = hashkey.alt_index(table_size);
 
-        let hashkey = HashKey::new(alt_index, hashkey.partial);
+        let hashkey = HashKey::with_partial(alt_index, hashkey.partial);
         assert_eq!(index, hashkey.alt_index(table_size));
     }
     /*

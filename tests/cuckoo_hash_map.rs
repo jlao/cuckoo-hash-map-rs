@@ -18,6 +18,7 @@ fn insert() {
 
     let prev = map.insert(1, "hello".to_string());
     assert_eq!(None, prev);
+    assert_eq!(Some(&"hello".to_string()), map.get(&1));
 
     let prev = map.insert(1, "bonjour".to_string());
     assert_eq!(
