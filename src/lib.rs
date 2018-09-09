@@ -241,35 +241,10 @@ enum Slot<M> {
     Match(MatchSlot<M>),
 }
 
-struct VacantSlot<M> {
-    bucket: usize,
-    slot: usize,
-    table: M,
-}
-
 struct MatchSlot<M> {
     bucket: usize,
     slot: usize,
     table: M,
-}
-
-enum InsertResult<K, V> {
-    Open,
-    Displaced(Displaced<K, V>),
-    NeedResize(Displaced<K, V>),
-}
-
-struct Displaced<K, V> {
-    key: K,
-    val: V,
-    partial: PartialKey,
-    bucket: usize,
-}
-
-impl<K, V> Displaced<K, V> {
-    fn hashkey(&self) -> HashKey {
-        HashKey::with_partial(self.bucket, self.partial)
-    }
 }
 
 impl<'m, K: 'm, V: 'm> MatchSlot<&'m Table<K, V>>
@@ -326,6 +301,12 @@ where
         *self.raw_slot_mut() = Some((key, val));
         prev
     }
+}
+
+struct VacantSlot<M> {
+    bucket: usize,
+    slot: usize,
+    table: M,
 }
 
 impl<'m, K: 'm, V: 'm> VacantSlot<&'m mut Table<K, V>>
@@ -417,6 +398,25 @@ where
 
             Ok(None)
         }
+    }
+}
+
+enum InsertResult<K, V> {
+    Open,
+    Displaced(Displaced<K, V>),
+    NeedResize(Displaced<K, V>),
+}
+
+struct Displaced<K, V> {
+    key: K,
+    val: V,
+    partial: PartialKey,
+    bucket: usize,
+}
+
+impl<K, V> Displaced<K, V> {
+    fn hashkey(&self) -> HashKey {
+        HashKey::with_partial(self.bucket, self.partial)
     }
 }
 
