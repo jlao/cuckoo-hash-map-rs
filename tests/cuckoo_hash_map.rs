@@ -1,5 +1,6 @@
 extern crate cuckoo;
 
+use std::collections::HashSet;
 use cuckoo::CuckooHashMap;
 
 #[test]
@@ -74,6 +75,23 @@ fn len() {
     map.insert(42, 42.to_string());
     expected_len += 1;
     assert_eq!(map.len(), expected_len);
+}
+
+#[test]
+fn iter() {
+    let mut map: CuckooHashMap<usize, String> = CuckooHashMap::new();
+    let mut expected = HashSet::new();
+
+    for i in 0..5 {
+        map.insert(i, i.to_string());
+        expected.insert((i, i.to_string()));
+
+        let actual: HashSet<(usize, String)> = map.iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
+        assert_eq!(actual, expected);
+    }
 }
 
 #[test]

@@ -80,6 +80,43 @@ where
     fn size(&self) -> usize {
         self.buckets.len()
     }
+
+    fn iter<'a>(&'a self) -> TableIter<'a, K, V> {
+        TableIter {
+            bucket: 0,
+            slot: 0,
+            table: self,
+        }
+    }
+}
+
+struct TableIter<'a, K: 'a + Eq, V: 'a> {
+    bucket: usize,
+    slot: usize,
+    table: &'a Table<K, V>
+}
+
+impl<'a, K: 'a + Eq, V: 'a> Iterator for TableIter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.bucket < self.table.size() {
+            while self.slot < SLOTS_PER_BUCKET {
+                let slot = &self.table.buckets[self.bucket].slots[self.slot];
+                if let Some((k, v)) = slot {
+                    self.slot += 1;
+                    return Some((k, v));
+                }
+
+                self.slot += 1;
+            }
+
+            self.bucket += 1;
+            self.slot = 0;
+        }
+
+        None
+    }
 }
 
 fn find_slot<K, V, M, F>(table: M, hashkey: &HashKey, is_match: F) -> Slot<M>
@@ -234,6 +271,7 @@ where
 
     fn remove(&mut self) -> Option<(K, V)> {
         self.table.size -= 1;
+        *self.partial_mut() = 0;
         self.table.buckets[self.bucket].slots[self.slot].take()
     }
 
@@ -674,12 +712,47 @@ where
         self.table.size
     }
 
+    /// An iterator visiting all key-value pairs in arbitrary order.
+    /// The iterator element type is `(&'a K, &'a V)`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::CuckooHashMap;
+    ///
+    /// let mut map = CuckooHashMap::new();
+    /// map.insert("a", 1);
+    /// map.insert("b", 2);
+    /// map.insert("c", 3);
+    ///
+    /// for (key, val) in map.iter() {
+    ///     println!("key: {} val: {}", key, val);
+    /// }
+    /// ```
+    pub fn iter(&self) -> Iter<K, V> {
+        Iter {
+            inner: self.table.iter(),
+        }
+    }
+
     fn hash<Q: Hash + ?Sized>(&self, key: &Q) -> HashKey {
         let mut hasher = self.state.build_hasher();
         key.hash(&mut hasher);
         let hash = hasher.finish() as usize;
         let partial = create_partial(hash);
         HashKey { hash, partial }
+    }
+}
+
+pub struct Iter<'a, K: 'a + Eq, V: 'a> {
+    inner: TableIter<'a, K, V>,
+}
+
+impl<'a, K: 'a + Eq, V: 'a> Iterator for Iter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
     }
 }
 
