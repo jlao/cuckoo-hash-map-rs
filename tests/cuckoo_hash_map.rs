@@ -121,6 +121,20 @@ fn keys() {
 }
 
 #[test]
+fn values() {
+    let mut map: CuckooHashMap<usize, String> = CuckooHashMap::new();
+    let mut expected = HashSet::new();
+
+    for i in 0..5 {
+        map.insert(i, i.to_string());
+        expected.insert(i.to_string());
+
+        let actual: HashSet<_> = map.values().cloned().collect();
+        assert_eq!(actual, expected);
+    }
+}
+
+#[test]
 fn iter_mut() {
     let mut map = CuckooHashMap::new();
     let mut expected = HashSet::new();

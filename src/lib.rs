@@ -843,6 +843,27 @@ where
         Keys { inner: self.iter() }
     }
 
+    /// An iterator visiting all values in arbitrary order.
+    /// The iterator element type is `&'a V`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::CuckooHashMap;
+    ///
+    /// let mut map = CuckooHashMap::new();
+    /// map.insert("a", 1);
+    /// map.insert("b", 2);
+    /// map.insert("c", 3);
+    ///
+    /// for val in map.values() {
+    ///     println!("{}", val);
+    /// }
+    /// ```
+    pub fn values(&self) -> Values<K, V> {
+        Values { inner: self.iter() }
+    }
+
     /// An iterator visiting all key-value pairs in arbitrary order,
     /// with mutable references to the values.
     /// The iterator element type is `(&'a K, &'a mut V)`.
@@ -914,6 +935,18 @@ impl<'a, K: 'a + Eq, V: 'a> Iterator for Keys<'a, K, V> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next().map(|(k, _)| k)
+    }
+}
+
+pub struct Values<'a, K: 'a + Eq, V: 'a> {
+    inner: Iter<'a, K, V>,
+}
+
+impl<'a, K: 'a + Eq, V: 'a> Iterator for Values<'a, K, V> {
+    type Item = &'a V;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|(_, v)| v)
     }
 }
 
