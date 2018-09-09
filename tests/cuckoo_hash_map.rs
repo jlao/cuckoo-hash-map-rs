@@ -78,6 +78,18 @@ fn len() {
 }
 
 #[test]
+fn is_empty() {
+    let mut map = CuckooHashMap::new();
+    assert!(map.is_empty());
+
+    map.insert(1, 1.to_string());
+    assert!(!map.is_empty());
+
+    map.remove(&1);
+    assert!(map.is_empty());
+}
+
+#[test]
 fn iter() {
     let mut map: CuckooHashMap<usize, String> = CuckooHashMap::new();
     let mut expected = HashSet::new();
