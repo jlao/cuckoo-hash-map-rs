@@ -587,12 +587,7 @@ where
         K: Borrow<Q>,
         Q: Hash + Eq,
     {
-        let hashkey = self.hash(key);
-        let mut slot = find_slot(&mut self.table, &hashkey, |k| k.borrow() == key);
-        match slot {
-            Slot::Match(ref mut match_slot) => match_slot.remove().map(|(_, v)| v),
-            _ => None,
-        }
+        self.remove_entry(key).map(|(_, v)| v)
     }
 
     /// Removes a key from the map, returning the stored key and value if the
