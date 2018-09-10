@@ -72,10 +72,10 @@ impl<K, V> Table<K, V>
 where
     K: Eq,
 {
-    fn new() -> Table<K, V> {
+    fn new(num_buckets: usize) -> Table<K, V> {
         Table {
             size: 0,
-            buckets: (0..INITIAL_SIZE).map(|_| Bucket::new()).collect(),
+            buckets: (0..num_buckets).map(|_| Bucket::new()).collect(),
         }
     }
 
@@ -97,6 +97,15 @@ where
             slots: None,
         }
     }
+
+    fn drain(&mut self) -> TableDrain<K, V> {
+        self.size = 0;
+        TableDrain {
+            bucket: 0,
+            slot: 0,
+            table: self,
+        }
+    }
 }
 
 struct TableIter<'a, K: 'a + Eq, V: 'a> {
@@ -111,13 +120,15 @@ impl<'a, K: 'a + Eq, V: 'a> Iterator for TableIter<'a, K, V> {
     fn next(&mut self) -> Option<Self::Item> {
         while self.bucket < self.table.size() {
             while self.slot < SLOTS_PER_BUCKET {
-                let slot = &self.table.buckets[self.bucket].slots[self.slot];
-                if let Some((k, v)) = slot {
+                if self.table.buckets[self.bucket].partials[self.slot] == 0 {
                     self.slot += 1;
-                    return Some((k, v));
+                    continue;
                 }
 
+                let slot = &self.table.buckets[self.bucket].slots[self.slot];
                 self.slot += 1;
+                let (k, v) = slot.as_ref().unwrap();
+                return Some((k, v));
             }
 
             self.bucket += 1;
@@ -139,8 +150,8 @@ impl<'a, K: 'a + Eq, V: 'a> Iterator for TableIterMut<'a, K, V> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if let Some(ref mut slots) = self.slots {
-                while let Some(slot) = slots.next() {
-                    if let Some((k, v)) = slot {
+                while let Some(raw_slot) = slots.next() {
+                    if let Some((k, v)) = raw_slot {
                         return Some((k, v));
                     }
                 }
@@ -153,6 +164,51 @@ impl<'a, K: 'a + Eq, V: 'a> Iterator for TableIterMut<'a, K, V> {
                 return None;
             }
         }
+    }
+}
+
+struct TableDrain<'a, K: 'a + Eq, V: 'a> {
+    bucket: usize,
+    slot: usize,
+    table: &'a mut Table<K, V>
+}
+
+impl<'a, K: 'a + Eq, V: 'a> Iterator for TableDrain<'a, K, V> {
+    type Item = (K, V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.bucket < self.table.size() {
+            while self.slot < SLOTS_PER_BUCKET {
+                let bucket = &mut self.table.buckets[self.bucket];
+                let partial = &mut bucket.partials[self.slot];
+
+                if *partial == 0 {
+                    self.slot += 1;
+                    continue;
+                }
+
+                *partial = 0;
+                let slot = bucket.slots[self.slot].take();
+                self.slot += 1;
+                debug_assert!(slot.is_some());
+                return slot;
+            }
+
+            self.bucket += 1;
+            self.slot = 0;
+        }
+
+        None
+    }
+}
+
+// The TableDrain iterator lazily takes values out of the table. If you do not
+// exhaust it, there will be left over items in the table. Thus, when the
+// iterator is dropped, we call drop on any remaining items that were not
+// iterated over to prevent memory leaks.
+impl<'a, K: 'a + Eq, V: 'a> Drop for TableDrain<'a, K, V> {
+    fn drop(&mut self) {
+        self.for_each(drop);
     }
 }
 
@@ -334,10 +390,18 @@ where
 
         if let InsertResult::Displaced(displaced) = insert_result {
             let hashkey = displaced.hashkey();
-            let mut slot = find_alt_slot(&mut *self.table, &hashkey, |k| k == &displaced.key);
 
-            insert_loop(&mut slot, &hashkey, displaced.key, displaced.val, MAX_DISPLACEMENTS - 1)
-                .expect("too many displacements");
+            let result = {
+                let mut slot = find_alt_slot(&mut *self.table, &hashkey, |k| k == &displaced.key);
+                insert_loop(&mut slot, &hashkey, displaced.key, displaced.val, MAX_DISPLACEMENTS - 1)
+            };
+
+            result.expect("too many displacements");
+            //if result.is_err() {
+            //    // resize
+            //    let new_table = Table::new(self.table.size() * 2);
+            //    let old_table = std::mem::replace(self.table, new_table);
+            //}
         }
     }
 
@@ -363,16 +427,14 @@ fn insert_loop<K, V>(
     key: K,
     val: V,
     max_displacements: u8,
-) -> Result<Option<V>, ResizeError<K, V>>
+) -> Result<(), ResizeError<K, V>>
 where
     K: Eq,
 {
     let mut num_displacements = 0;
 
     match slot {
-        Slot::Match(mslot) => {
-            return Ok(Some(mslot.insert(hashkey, val)));
-        }
+        Slot::Match(_) => unreachable!(),
         Slot::Vacant(vslot) => {
             let mut insert_result = vslot.insert_and_displace(hashkey, key, val);
 
@@ -396,7 +458,7 @@ where
                 }
             }
 
-            Ok(None)
+            Ok(())
         }
     }
 }
@@ -508,17 +570,9 @@ where
                 continue;
             }
 
-            match &self.slots[i] {
-                None if open_slot.is_none() => {
-                    open_slot = Some(i);
-                    continue;
-                }
-                None => {}
-                Some((k, _)) => {
-                    if is_match(k) {
-                        return (i, SlotStatus::Match);
-                    }
-                }
+            let (k, _) = &self.slots[i].as_ref().unwrap();
+            if is_match(k) {
+                return (i, SlotStatus::Match);
             }
         }
 
@@ -540,7 +594,7 @@ where
     pub fn new() -> CuckooHashMap<K, V> {
         CuckooHashMap {
             state: RandomState::new(),
-            table: Table::new(),
+            table: Table::new(INITIAL_SIZE),
         }
     }
 
@@ -919,6 +973,29 @@ where
         ValuesMut { inner: self.iter_mut() }
     }
 
+    /// Clears the map, returning all key-value pairs as an iterator. Keeps the
+    /// allocated memory for reuse.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::CuckooHashMap;
+    ///
+    /// let mut a = CuckooHashMap::new();
+    /// a.insert(1, "a");
+    /// a.insert(2, "b");
+    ///
+    /// for (k, v) in a.drain().take(1) {
+    ///     assert!(k == 1 || k == 2);
+    ///     assert!(v == "a" || v == "b");
+    /// }
+    ///
+    /// assert!(a.is_empty());
+    /// ```
+    pub fn drain(&mut self) -> Drain<K, V> {
+        Drain { inner: self.table.drain() }
+    }
+
     fn hash<Q: Hash + ?Sized>(&self, key: &Q) -> HashKey {
         let mut hasher = self.state.build_hasher();
         key.hash(&mut hasher);
@@ -997,6 +1074,18 @@ impl<'a, K: 'a + Eq, V: 'a> Iterator for ValuesMut<'a, K, V> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next().map(|(_, v)| v)
+    }
+}
+
+pub struct Drain<'a, K: 'a + Eq, V: 'a> {
+    inner: TableDrain<'a, K, V>,
+}
+
+impl<'a, K: 'a + Eq, V: 'a> Iterator for Drain<'a, K, V> {
+    type Item = (K, V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
     }
 }
 
@@ -1387,7 +1476,7 @@ mod internal_tests {
 
     #[test]
     fn table_basics() {
-        let mut table = Table::new();
+        let mut table = Table::new(INITIAL_SIZE);
         let hashkey = HashKey::new(7832);
 
         {

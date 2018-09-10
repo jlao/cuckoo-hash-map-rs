@@ -145,6 +145,7 @@ fn iter_mut() {
     }
 
     for (key, val) in map.iter_mut() {
+        assert_eq!(key, &val.to_string());
         *val *= 2;
     }
 
@@ -171,6 +172,43 @@ fn values_mut() {
 
     let actual: HashSet<_> = map.values().cloned().collect();
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn drain() {
+    let mut map: CuckooHashMap<usize, String> = CuckooHashMap::new();
+    let mut expected = HashSet::new();
+
+    for i in 0..5 {
+        map.insert(i, i.to_string());
+        expected.insert((i, i.to_string()));
+    }
+
+    let actual: HashSet<(usize, String)> = map.drain().collect();
+    assert_eq!(actual, expected);
+    assert_eq!(map.len(), 0);
+    assert!(map.is_empty());
+
+    assert_eq!(map.iter().next(), None);
+    assert_eq!(map.keys().next(), None);
+    assert_eq!(map.values().next(), None);
+    assert_eq!(map.iter_mut().next(), None);
+
+    for i in 0..5 {
+        map.insert(i, i.to_string());
+        expected.insert((i, i.to_string()));
+    }
+
+    {
+        map.drain().take(1);
+    }
+
+    assert_eq!(map.len(), 0);
+    assert!(map.is_empty());
+    assert_eq!(map.iter().next(), None, "iter() is not empty");
+    assert_eq!(map.keys().next(), None, "keys() is not empty");
+    assert_eq!(map.values().next(), None, "values() is not empty");
+    assert_eq!(map.iter_mut().next(), None, "iter_mut() is not empty");
 }
 
 #[test]
