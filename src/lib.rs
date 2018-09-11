@@ -14,7 +14,7 @@ const MAX_DISPLACEMENTS: u8 = 100;
 #[derive(Debug)]
 pub struct CuckooHashMap<K, V>
 where
-    K: Hash + Eq,
+    K: Eq + Hash,
 {
     state: RandomState,
     table: Table<K, V>,
@@ -62,7 +62,7 @@ fn create_partial(hash: usize) -> u8 {
 #[derive(Debug)]
 struct Table<K, V>
 where
-    K: Eq,
+    K: Eq + Hash,
 {
     size: usize,
     buckets: Vec<Bucket<K, V>>,
@@ -70,7 +70,7 @@ where
 
 impl<K, V> Table<K, V>
 where
-    K: Eq,
+    K: Eq + Hash,
 {
     fn new(num_buckets: usize) -> Table<K, V> {
         Table {
@@ -106,15 +106,43 @@ where
             table: self,
         }
     }
+
+    fn insert(&mut self, state: &RandomState, hashkey: &HashKey, key: K, val: V) -> Option<V>
+    {
+        let mut slot = find_slot(&mut *self, hashkey, |k| k == &key);
+        slot.insert(state, hashkey, key, val)
+    }
+
 }
 
-struct TableIter<'a, K: 'a + Eq, V: 'a> {
+fn hash<Q: Hash + ?Sized>(key: &Q, state: &RandomState) -> usize {
+    let mut hasher = state.build_hasher();
+    key.hash(&mut hasher);
+    hasher.finish() as usize
+}
+
+fn resize<K, V>(table: &mut Table<K, V>, state: &RandomState) -> Table<K, V>
+where
+    K: Eq + Hash,
+{
+    let mut new_table = Table::new(table.buckets.len() * 2);
+
+    for (partial, key, val) in table.drain() {
+        let hash = hash(&key, state);
+        let hashkey = HashKey::with_partial(hash, partial);
+        new_table.insert(state, &hashkey, key, val);
+    }
+
+    new_table
+}
+
+struct TableIter<'a, K: 'a + Eq + Hash, V: 'a> {
     bucket: usize,
     slot: usize,
     table: &'a Table<K, V>
 }
 
-impl<'a, K: 'a + Eq, V: 'a> Iterator for TableIter<'a, K, V> {
+impl<'a, K: 'a + Eq + Hash, V: 'a> Iterator for TableIter<'a, K, V> {
     type Item = (&'a K, &'a V);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -167,14 +195,14 @@ impl<'a, K: 'a + Eq, V: 'a> Iterator for TableIterMut<'a, K, V> {
     }
 }
 
-struct TableDrain<'a, K: 'a + Eq, V: 'a> {
+struct TableDrain<'a, K: 'a + Eq + Hash, V: 'a> {
     bucket: usize,
     slot: usize,
     table: &'a mut Table<K, V>
 }
 
-impl<'a, K: 'a + Eq, V: 'a> Iterator for TableDrain<'a, K, V> {
-    type Item = (K, V);
+impl<'a, K: 'a + Eq + Hash, V: 'a> Iterator for TableDrain<'a, K, V> {
+    type Item = (PartialKey, K, V);
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.bucket < self.table.size() {
@@ -187,11 +215,11 @@ impl<'a, K: 'a + Eq, V: 'a> Iterator for TableDrain<'a, K, V> {
                     continue;
                 }
 
+                let return_partial = *partial;
                 *partial = 0;
-                let slot = bucket.slots[self.slot].take();
+                let (k, v) = bucket.slots[self.slot].take().unwrap();
                 self.slot += 1;
-                debug_assert!(slot.is_some());
-                return slot;
+                return Some((return_partial, k, v));
             }
 
             self.bucket += 1;
@@ -206,7 +234,7 @@ impl<'a, K: 'a + Eq, V: 'a> Iterator for TableDrain<'a, K, V> {
 // exhaust it, there will be left over items in the table. Thus, when the
 // iterator is dropped, we call drop on any remaining items that were not
 // iterated over to prevent memory leaks.
-impl<'a, K: 'a + Eq, V: 'a> Drop for TableDrain<'a, K, V> {
+impl<'a, K: 'a + Eq + Hash, V: 'a> Drop for TableDrain<'a, K, V> {
     fn drop(&mut self) {
         self.for_each(drop);
     }
@@ -214,7 +242,7 @@ impl<'a, K: 'a + Eq, V: 'a> Drop for TableDrain<'a, K, V> {
 
 fn find_slot<K, V, M, F>(table: M, hashkey: &HashKey, is_match: F) -> Slot<M>
 where
-    K: Eq,
+    K: Eq + Hash,
     M: Deref<Target = Table<K, V>>,
     F: Fn(&K) -> bool,
 {
@@ -268,7 +296,7 @@ where
 
 fn find_alt_slot<K, V, M, F>(table: M, hashkey: &HashKey, is_match: F) -> Slot<M>
 where
-    K: Eq,
+    K: Eq + Hash,
     M: Deref<Target = Table<K, V>>,
     F: Fn(&K) -> bool,
 {
@@ -303,18 +331,14 @@ struct MatchSlot<M> {
     table: M,
 }
 
-impl<'m, K: 'm, V: 'm> MatchSlot<&'m Table<K, V>>
-where
-    K: Eq,
+impl<'m, K: 'm + Eq + Hash, V: 'm> MatchSlot<&'m Table<K, V>>
 {
     fn raw_slot(&self) -> &'m Option<(K, V)> {
         &self.table.buckets[self.bucket].slots[self.slot]
     }
 }
 
-impl<'m, K: 'm, V: 'm> MatchSlot<&'m mut Table<K, V>>
-where
-    K: Eq,
+impl<'m, K: 'm + Eq + Hash, V: 'm> MatchSlot<&'m mut Table<K, V>>
 {
     fn val(&self) -> &V {
         &self.table.buckets[self.bucket].slots[self.slot]
@@ -365,9 +389,7 @@ struct VacantSlot<M> {
     table: M,
 }
 
-impl<'m, K: 'm, V: 'm> VacantSlot<&'m mut Table<K, V>>
-where
-    K: Eq,
+impl<'m, K: 'm + Eq + Hash, V: 'm> VacantSlot<&'m mut Table<K, V>>
 {
     fn into_val_mut(self) -> &'m mut V {
         &mut self.table.buckets[self.bucket].slots[self.slot]
@@ -384,7 +406,8 @@ where
         &mut self.table.buckets[self.bucket].partials[self.slot]
     }
 
-    fn insert(&mut self, hashkey: &HashKey, key: K, val: V) {
+    fn insert(&mut self, state: &RandomState, hashkey: &HashKey, key: K, val: V)
+    {
         let insert_result = self.insert_and_displace(hashkey, key, val);
         self.table.size += 1;
 
@@ -396,12 +419,12 @@ where
                 insert_loop(&mut slot, &hashkey, displaced.key, displaced.val, MAX_DISPLACEMENTS - 1)
             };
 
-            result.expect("too many displacements");
-            //if result.is_err() {
-            //    // resize
-            //    let new_table = Table::new(self.table.size() * 2);
-            //    let old_table = std::mem::replace(self.table, new_table);
-            //}
+            if let Err(err) = result {
+                // resize
+                *self.table = resize(self.table, state);
+                let hashkey = HashKey::with_partial(hash(&err.key, state), err.partial);
+                self.table.insert(state, &hashkey, err.key, err.val);
+            }
         }
     }
 
@@ -429,7 +452,7 @@ fn insert_loop<K, V>(
     max_displacements: u8,
 ) -> Result<(), ResizeError<K, V>>
 where
-    K: Eq,
+    K: Eq + Hash,
 {
     let mut num_displacements = 0;
 
@@ -442,7 +465,9 @@ where
                 num_displacements += 1;
                 if num_displacements >= max_displacements {
                     return Err(ResizeError {
-                        displaced: (displaced.key, displaced.val),
+                        key: displaced.key,
+                        val: displaced.val,
+                        partial: displaced.partial,
                     });
                 }
 
@@ -466,7 +491,6 @@ where
 enum InsertResult<K, V> {
     Open,
     Displaced(Displaced<K, V>),
-    NeedResize(Displaced<K, V>),
 }
 
 struct Displaced<K, V> {
@@ -484,7 +508,7 @@ impl<K, V> Displaced<K, V> {
 
 impl<'m, K: 'm, V: 'm, M: 'm> Slot<M>
 where
-    K: Eq,
+    K: Eq + Hash,
     M: Deref<Target = Table<K, V>>,
 {
     fn is_match(&self) -> bool {
@@ -504,13 +528,13 @@ where
 
 impl<'m, K: 'm, V: 'm> Slot<&'m mut Table<K, V>>
 where
-    K: Eq,
+    K: Eq + Hash,
 {
-    fn insert(&mut self, hashkey: &HashKey, key: K, val: V) -> Option<V> {
+    fn insert(&mut self, state: &RandomState, hashkey: &HashKey, key: K, val: V) -> Option<V> {
         match self {
             Slot::Match(mslot) => Some(mslot.insert(hashkey, val)),
             Slot::Vacant(vslot) => {
-                vslot.insert(hashkey, key, val);
+                vslot.insert(state, hashkey, key, val);
                 None
             }
         }
@@ -518,7 +542,9 @@ where
 }
 
 struct ResizeError<K, V> {
-    displaced: (K, V)
+    key: K,
+    val: V,
+    partial: PartialKey,
 }
 
 impl<K, V> fmt::Debug for ResizeError<K, V> {
@@ -626,6 +652,7 @@ where
                 key,
                 hashkey,
                 slot: vslot,
+                state: &self.state,
             }),
             Slot::Match(mslot) => Entry::Occupied(OccupiedEntry { key, slot: mslot }),
         }
@@ -658,8 +685,7 @@ where
     /// ```
     pub fn insert(&mut self, key: K, val: V) -> Option<V> {
         let hashkey = self.hash(&key);
-        let mut slot = find_slot(&mut self.table, &hashkey, |k| k == &key);
-        slot.insert(&hashkey, key, val)
+        self.table.insert(&self.state, &hashkey, key, val)
     }
 
     /// Returns a reference to the value corresponding to the key.
@@ -1000,8 +1026,7 @@ where
         let mut hasher = self.state.build_hasher();
         key.hash(&mut hasher);
         let hash = hasher.finish() as usize;
-        let partial = create_partial(hash);
-        HashKey { hash, partial }
+        HashKey::new(hash)
     }
 }
 
@@ -1017,11 +1042,11 @@ where
     }
 }
 
-pub struct Iter<'a, K: 'a + Eq, V: 'a> {
+pub struct Iter<'a, K: 'a + Eq + Hash, V: 'a> {
     inner: TableIter<'a, K, V>,
 }
 
-impl<'a, K: 'a + Eq, V: 'a> Iterator for Iter<'a, K, V> {
+impl<'a, K: 'a + Eq + Hash, V: 'a> Iterator for Iter<'a, K, V> {
     type Item = (&'a K, &'a V);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1029,11 +1054,11 @@ impl<'a, K: 'a + Eq, V: 'a> Iterator for Iter<'a, K, V> {
     }
 }
 
-pub struct Keys<'a, K: 'a + Eq, V: 'a> {
+pub struct Keys<'a, K: 'a + Eq + Hash, V: 'a> {
     inner: Iter<'a, K, V>,
 }
 
-impl<'a, K: 'a + Eq, V: 'a> Iterator for Keys<'a, K, V> {
+impl<'a, K: 'a + Eq + Hash, V: 'a> Iterator for Keys<'a, K, V> {
     type Item = &'a K;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1041,11 +1066,11 @@ impl<'a, K: 'a + Eq, V: 'a> Iterator for Keys<'a, K, V> {
     }
 }
 
-pub struct Values<'a, K: 'a + Eq, V: 'a> {
+pub struct Values<'a, K: 'a + Eq + Hash, V: 'a> {
     inner: Iter<'a, K, V>,
 }
 
-impl<'a, K: 'a + Eq, V: 'a> Iterator for Values<'a, K, V> {
+impl<'a, K: 'a + Eq + Hash, V: 'a> Iterator for Values<'a, K, V> {
     type Item = &'a V;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1053,11 +1078,11 @@ impl<'a, K: 'a + Eq, V: 'a> Iterator for Values<'a, K, V> {
     }
 }
 
-pub struct IterMut<'a, K: 'a + Eq, V: 'a> {
+pub struct IterMut<'a, K: 'a + Eq + Hash, V: 'a> {
     inner: TableIterMut<'a, K, V>,
 }
 
-impl<'a, K: 'a + Eq, V: 'a> Iterator for IterMut<'a, K, V> {
+impl<'a, K: 'a + Eq + Hash, V: 'a> Iterator for IterMut<'a, K, V> {
     type Item = (&'a K, &'a mut V);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1065,11 +1090,11 @@ impl<'a, K: 'a + Eq, V: 'a> Iterator for IterMut<'a, K, V> {
     }
 }
 
-pub struct ValuesMut<'a, K: 'a + Eq, V: 'a> {
+pub struct ValuesMut<'a, K: 'a + Eq + Hash, V: 'a> {
     inner: IterMut<'a, K, V>,
 }
 
-impl<'a, K: 'a + Eq, V: 'a> Iterator for ValuesMut<'a, K, V> {
+impl<'a, K: 'a + Eq + Hash, V: 'a> Iterator for ValuesMut<'a, K, V> {
     type Item = &'a mut V;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1077,15 +1102,15 @@ impl<'a, K: 'a + Eq, V: 'a> Iterator for ValuesMut<'a, K, V> {
     }
 }
 
-pub struct Drain<'a, K: 'a + Eq, V: 'a> {
+pub struct Drain<'a, K: 'a + Eq + Hash, V: 'a> {
     inner: TableDrain<'a, K, V>,
 }
 
-impl<'a, K: 'a + Eq, V: 'a> Iterator for Drain<'a, K, V> {
+impl<'a, K: 'a + Eq + Hash, V: 'a> Iterator for Drain<'a, K, V> {
     type Item = (K, V);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
+        self.inner.next().map(|(_, k, v)| (k, v))
     }
 }
 
@@ -1225,7 +1250,7 @@ impl<'a, K: Hash + Eq, V: Default> Entry<'a, K, V> {
 
 pub struct OccupiedEntry<'a, K, V>
 where
-    K: 'a + Eq,
+    K: 'a + Eq + Hash,
     V: 'a,
 {
     key: K,
@@ -1234,7 +1259,7 @@ where
 
 impl<'a, K, V> OccupiedEntry<'a, K, V>
 where
-    K: 'a + Eq,
+    K: 'a + Eq + Hash,
     V: 'a,
 {
     /// Gets a reference to the key in the entry.
@@ -1397,6 +1422,7 @@ where
     key: K,
     hashkey: HashKey,
     slot: VacantSlot<&'a mut Table<K, V>>,
+    state: &'a RandomState,
 }
 
 impl<'a, K, V> VacantEntry<'a, K, V>
@@ -1453,7 +1479,7 @@ where
     /// ```
     pub fn insert(self, value: V) -> &'a mut V {
         let mut slot = self.slot;
-        slot.insert(&self.hashkey, self.key, value);
+        slot.insert(self.state, &self.hashkey, self.key, value);
         slot.into_val_mut()
     }
 }
@@ -1476,13 +1502,14 @@ mod internal_tests {
 
     #[test]
     fn table_basics() {
+        let state = RandomState::new();
         let mut table = Table::new(INITIAL_SIZE);
-        let hashkey = HashKey::new(7832);
+        let hashkey = HashKey::new(hash(&7832, &state));
 
         {
             let mut slot = find_slot(&mut table, &hashkey, |k| *k == 4);
             assert!(slot.is_vacant());
-            slot.insert(&hashkey, 4, "hello".to_string());
+            slot.insert(&state, &hashkey, 4, "hello".to_string());
         }
 
         let slot = find_slot(&mut table, &hashkey, |k| *k == 4);

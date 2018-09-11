@@ -200,7 +200,7 @@ fn drain() {
     }
 
     {
-        map.drain().take(1);
+        assert!(map.drain().take(1).next().is_some());
     }
 
     assert_eq!(map.len(), 0);
@@ -212,9 +212,8 @@ fn drain() {
 }
 
 #[test]
-#[ignore]
 fn insert_more_than_capacity() {
-    const NUM_ITEMS: u32 = 128 * 4 + 1;
+    const NUM_ITEMS: usize = 128 * 4 + 1;
 
     let mut map = CuckooHashMap::new();
 
@@ -225,4 +224,6 @@ fn insert_more_than_capacity() {
     for i in 0..NUM_ITEMS {
         assert_eq!(map.get(&i), Some(&i.to_string()));
     }
+
+    assert_eq!(map.len(), NUM_ITEMS);
 }
