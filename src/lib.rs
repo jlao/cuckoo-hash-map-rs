@@ -27,10 +27,15 @@ struct HashKey {
 }
 
 impl HashKey {
-    fn new(hash: usize) -> HashKey {
+    fn new<Q: Hash + ?Sized, S: BuildHasher>(key: &Q, state: &S) -> HashKey {
+        let hash = hash(key, state);
+        Self::from_hash(hash)
+    }
+
+    fn from_hash(hash: usize) -> HashKey {
         HashKey {
             hash,
-            partial: create_partial(hash),
+            partial: Self::create_partial(hash),
         }
     }
 
@@ -46,16 +51,16 @@ impl HashKey {
         let index = self.index(table_size);
         (index ^ (self.partial as usize).wrapping_mul(0xc6a4a7935bd1e995)) % table_size
     }
-}
 
-fn create_partial(hash: usize) -> u8 {
-    let hash = (hash as u32) ^ ((hash >> 32) as u32);
-    let hash = (hash as u16) ^ ((hash >> 16) as u16);
-    let hash = (hash as u8) ^ ((hash >> 8) as u8);
-    if hash > 0 {
-        hash
-    } else {
-        1
+    fn create_partial(hash: usize) -> u8 {
+        let hash = (hash as u32) ^ ((hash >> 32) as u32);
+        let hash = (hash as u16) ^ ((hash >> 16) as u16);
+        let hash = (hash as u8) ^ ((hash >> 8) as u8);
+        if hash > 0 {
+            hash
+        } else {
+            1
+        }
     }
 }
 
@@ -115,25 +120,10 @@ where
 
 }
 
-fn hash<Q: Hash + ?Sized>(key: &Q, state: &RandomState) -> usize {
+fn hash<Q: Hash + ?Sized, S: BuildHasher>(key: &Q, state: &S) -> usize {
     let mut hasher = state.build_hasher();
     key.hash(&mut hasher);
     hasher.finish() as usize
-}
-
-fn resize<K, V>(table: &mut Table<K, V>, state: &RandomState) -> Table<K, V>
-where
-    K: Eq + Hash,
-{
-    let mut new_table = Table::new(table.buckets.len() * 2);
-
-    for (partial, key, val) in table.drain() {
-        let hash = hash(&key, state);
-        let hashkey = HashKey::with_partial(hash, partial);
-        new_table.insert(state, &hashkey, key, val);
-    }
-
-    new_table
 }
 
 struct TableIter<'a, K: 'a + Eq + Hash, V: 'a> {
@@ -421,7 +411,7 @@ impl<'m, K: 'm + Eq + Hash, V: 'm> VacantSlot<&'m mut Table<K, V>>
 
             if let Err(err) = result {
                 // resize
-                *self.table = resize(self.table, state);
+                resize(self.table, state);
                 let hashkey = HashKey::with_partial(hash(&err.key, state), err.partial);
                 self.table.insert(state, &hashkey, err.key, err.val);
             }
@@ -442,6 +432,21 @@ impl<'m, K: 'm + Eq + Hash, V: 'm> VacantSlot<&'m mut Table<K, V>>
             },
         )
     }
+}
+
+fn resize<K, V>(table: &mut Table<K, V>, state: &RandomState)
+where
+    K: Eq + Hash,
+{
+    let mut new_table = Table::new(table.buckets.len() * 2);
+
+    for (partial, key, val) in table.drain() {
+        let hash = hash(&key, state);
+        let hashkey = HashKey::with_partial(hash, partial);
+        new_table.insert(state, &hashkey, key, val);
+    }
+
+    std::mem::replace(table, new_table);
 }
 
 fn insert_loop<K, V>(
@@ -644,7 +649,7 @@ where
     /// assert_eq!(letters.get(&'y'), None);
     /// ```
     pub fn entry(&mut self, key: K) -> Entry<K, V> {
-        let hashkey = self.hash(&key);
+        let hashkey = HashKey::new(&key, &self.state);
         let slot = find_slot(&mut self.table, &hashkey, |k| k == &key);
 
         match slot {
@@ -684,7 +689,7 @@ where
     /// assert_eq!(map[&37], "c");
     /// ```
     pub fn insert(&mut self, key: K, val: V) -> Option<V> {
-        let hashkey = self.hash(&key);
+        let hashkey = HashKey::new(&key, &self.state);
         self.table.insert(&self.state, &hashkey, key, val)
     }
 
@@ -712,8 +717,7 @@ where
         K: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
     {
-        let hashkey = self.hash(key);
-        let slot = find_slot(&self.table, &hashkey, |k| k.borrow() == key);
+        let slot = Self::find_slot(&self.table, &self.state, key);
         match slot {
             Slot::Match(match_slot) => match_slot.raw_slot().as_ref().map(|(_, v)| v),
             _ => None,
@@ -746,8 +750,7 @@ where
         K: Borrow<Q>,
         Q: Hash + Eq,
     {
-        let hashkey = self.hash(key);
-        let slot = find_slot(&mut self.table, &hashkey, |k| k.borrow() == key);
+        let slot = Self::find_slot(&mut self.table, &self.state, key);
         match slot {
             Slot::Match(match_slot) => Some(match_slot.into_val_mut()),
             _ => None,
@@ -778,8 +781,7 @@ where
         K: Borrow<Q>,
         Q: Hash + Eq,
     {
-        let hashkey = self.hash(key);
-        let slot = find_slot(&self.table, &hashkey, |k| k.borrow() == key);
+        let slot = Self::find_slot(&self.table, &self.state, key);
         match slot {
             Slot::Match(_) => true,
             _ => false,
@@ -839,8 +841,7 @@ where
         K: Borrow<Q>,
         Q: Hash + Eq,
     {
-        let hashkey = self.hash(key);
-        let mut slot = find_slot(&mut self.table, &hashkey, |k| k.borrow() == key);
+        let mut slot = Self::find_slot(&mut self.table, &self.state, key);
         match slot {
             Slot::Match(ref mut match_slot) => match_slot.remove(),
             _ => None,
@@ -1022,11 +1023,15 @@ where
         Drain { inner: self.table.drain() }
     }
 
-    fn hash<Q: Hash + ?Sized>(&self, key: &Q) -> HashKey {
-        let mut hasher = self.state.build_hasher();
-        key.hash(&mut hasher);
-        let hash = hasher.finish() as usize;
-        HashKey::new(hash)
+    fn find_slot<M, Q, S>(table: M, state: &S, key: &Q) -> Slot<M>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+        M: Deref<Target = Table<K, V>>,
+        S: BuildHasher,
+    {
+        let hashkey = HashKey::new(key, state);
+        find_slot(table, &hashkey, |k| k.borrow() == key)
     }
 }
 
@@ -1504,7 +1509,7 @@ mod internal_tests {
     fn table_basics() {
         let state = RandomState::new();
         let mut table = Table::new(INITIAL_SIZE);
-        let hashkey = HashKey::new(hash(&7832, &state));
+        let hashkey = HashKey::from_hash(hash(&7832, &state));
 
         {
             let mut slot = find_slot(&mut table, &hashkey, |k| *k == 4);
@@ -1519,7 +1524,7 @@ mod internal_tests {
     #[test]
     fn hashkey_invertable() {
         let table_size = 128;
-        let hashkey = HashKey::new(74839);
+        let hashkey = HashKey::from_hash(74839);
         let index = hashkey.index(table_size);
         let alt_index = hashkey.alt_index(table_size);
 
