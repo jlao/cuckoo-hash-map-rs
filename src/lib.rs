@@ -12,11 +12,12 @@ use std::slice;
 const MAX_DISPLACEMENTS: u8 = 100;
 
 #[derive(Debug)]
-pub struct CuckooHashMap<K, V>
+pub struct CuckooHashMap<K, V, S = RandomState>
 where
     K: Eq + Hash,
+    S: BuildHasher,
 {
-    state: RandomState,
+    state: S,
     table: Table<K, V>,
 }
 
@@ -112,7 +113,9 @@ where
         }
     }
 
-    fn insert(&mut self, state: &RandomState, hashkey: &HashKey, key: K, val: V) -> Option<V>
+    fn insert<S>(&mut self, state: &S, hashkey: &HashKey, key: K, val: V) -> Option<V>
+    where
+        S: BuildHasher,
     {
         let mut slot = find_slot(&mut *self, hashkey, |k| k == &key);
         slot.insert(state, hashkey, key, val)
@@ -396,7 +399,9 @@ impl<'m, K: 'm + Eq + Hash, V: 'm> VacantSlot<&'m mut Table<K, V>>
         &mut self.table.buckets[self.bucket].partials[self.slot]
     }
 
-    fn insert(&mut self, state: &RandomState, hashkey: &HashKey, key: K, val: V)
+    fn insert<S>(&mut self, state: &S, hashkey: &HashKey, key: K, val: V)
+    where
+        S: BuildHasher,
     {
         let insert_result = self.insert_and_displace(hashkey, key, val);
         self.table.size += 1;
@@ -434,9 +439,10 @@ impl<'m, K: 'm + Eq + Hash, V: 'm> VacantSlot<&'m mut Table<K, V>>
     }
 }
 
-fn resize<K, V>(table: &mut Table<K, V>, state: &RandomState)
+fn resize<K, V, S>(table: &mut Table<K, V>, state: &S)
 where
     K: Eq + Hash,
+    S: BuildHasher,
 {
     let mut new_table = Table::new(table.buckets.len() * 2);
 
@@ -535,7 +541,7 @@ impl<'m, K: 'm, V: 'm> Slot<&'m mut Table<K, V>>
 where
     K: Eq + Hash,
 {
-    fn insert(&mut self, state: &RandomState, hashkey: &HashKey, key: K, val: V) -> Option<V> {
+    fn insert<S: BuildHasher>(&mut self, state: &S, hashkey: &HashKey, key: K, val: V) -> Option<V> {
         match self {
             Slot::Match(mslot) => Some(mslot.insert(hashkey, val)),
             Slot::Vacant(vslot) => {
@@ -618,13 +624,43 @@ where
     }
 }
 
-impl<K, V> CuckooHashMap<K, V>
+impl<K, V> CuckooHashMap<K, V, RandomState>
 where
     K: Hash + Eq,
 {
-    pub fn new() -> CuckooHashMap<K, V> {
+    pub fn new() -> CuckooHashMap<K, V, RandomState> {
+        CuckooHashMap::with_hasher(RandomState::new())
+    }
+}
+
+impl<K, V, S> CuckooHashMap<K, V, S>
+where
+    K: Hash + Eq,
+    S: BuildHasher,
+{
+    /// Creates an empty `HashMap` which will use the given hash builder to hash
+    /// keys.
+    ///
+    /// The created map has the default initial capacity.
+    ///
+    /// Warning: `hash_builder` is normally randomly generated, and
+    /// is designed to allow HashMaps to be resistant to attacks that
+    /// cause many collisions and very poor performance. Setting it
+    /// manually using this function can expose a DoS attack vector.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::CuckooHashMap;
+    /// use std::collections::hash_map::RandomState;
+    ///
+    /// let s = RandomState::new();
+    /// let mut map = CuckooHashMap::with_hasher(s);
+    /// map.insert(1, 2);
+    /// ```
+    pub fn with_hasher(hash_builder: S) -> CuckooHashMap<K, V, S> {
         CuckooHashMap {
-            state: RandomState::new(),
+            state: hash_builder,
             table: Table::new(INITIAL_SIZE),
         }
     }
@@ -648,7 +684,7 @@ where
     /// assert_eq!(letters[&'u'], 1);
     /// assert_eq!(letters.get(&'y'), None);
     /// ```
-    pub fn entry(&mut self, key: K) -> Entry<K, V> {
+    pub fn entry(&mut self, key: K) -> Entry<K, V, S> {
         let hashkey = HashKey::new(&key, &self.state);
         let slot = find_slot(&mut self.table, &hashkey, |k| k == &key);
 
@@ -1023,21 +1059,21 @@ where
         Drain { inner: self.table.drain() }
     }
 
-    fn find_slot<M, Q, S>(table: M, state: &S, key: &Q) -> Slot<M>
+    fn find_slot<M, Q>(table: M, state: &S, key: &Q) -> Slot<M>
     where
         K: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
         M: Deref<Target = Table<K, V>>,
-        S: BuildHasher,
     {
         let hashkey = HashKey::new(key, state);
         find_slot(table, &hashkey, |k| k.borrow() == key)
     }
 }
 
-impl<'a, K, V> IntoIterator for &'a CuckooHashMap<K, V>
+impl<'a, K, V, S> IntoIterator for &'a CuckooHashMap<K, V, S>
 where
     K: Eq + Hash,
+    S: BuildHasher,
 {
     type Item = (&'a K, &'a V);
     type IntoIter = Iter<'a, K, V>;
@@ -1119,19 +1155,21 @@ impl<'a, K: 'a + Eq + Hash, V: 'a> Iterator for Drain<'a, K, V> {
     }
 }
 
-pub enum Entry<'a, K, V>
+pub enum Entry<'a, K, V, S>
 where
     K: 'a + Hash + Eq,
     V: 'a,
+    S: 'a + BuildHasher,
 {
     Occupied(OccupiedEntry<'a, K, V>),
-    Vacant(VacantEntry<'a, K, V>),
+    Vacant(VacantEntry<'a, K, V, S>),
 }
 
-impl<'a, K, V> Entry<'a, K, V>
+impl<'a, K, V, S> Entry<'a, K, V, S>
 where
     K: 'a + Hash + Eq,
     V: 'a,
+    S: BuildHasher,
 {
     /// Ensures a value is in the entry by inserting the default if empty, and returns
     /// a mutable reference to the value in the entry.
@@ -1229,7 +1267,7 @@ where
     }
 }
 
-impl<'a, K: Hash + Eq, V: Default> Entry<'a, K, V> {
+impl<'a, K: Hash + Eq, V: Default, S: BuildHasher> Entry<'a, K, V, S> {
     /// Ensures a value is in the entry by inserting the default value if empty,
     /// and returns a mutable reference to the value in the entry.
     ///
@@ -1419,21 +1457,23 @@ where
     }
 }
 
-pub struct VacantEntry<'a, K, V>
+pub struct VacantEntry<'a, K, V, S>
 where
     K: 'a + Hash + Eq,
     V: 'a,
+    S: 'a + BuildHasher,
 {
     key: K,
     hashkey: HashKey,
     slot: VacantSlot<&'a mut Table<K, V>>,
-    state: &'a RandomState,
+    state: &'a S,
 }
 
-impl<'a, K, V> VacantEntry<'a, K, V>
+impl<'a, K, V, S> VacantEntry<'a, K, V, S>
 where
     K: 'a + Hash + Eq,
     V: 'a,
+    S: BuildHasher,
 {
     /// Gets a reference to the key that would be used when inserting a value
     /// through the `VacantEntry`.
@@ -1489,10 +1529,11 @@ where
     }
 }
 
-impl<'a, K, Q: ?Sized, V> Index<&'a Q> for CuckooHashMap<K, V>
+impl<'a, K, Q: ?Sized, V, S> Index<&'a Q> for CuckooHashMap<K, V, S>
 where
     K: Eq + Hash + Borrow<Q>,
     Q: Eq + Hash,
+    S: BuildHasher,
 {
     type Output = V;
 

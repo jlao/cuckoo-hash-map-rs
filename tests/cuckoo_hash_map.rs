@@ -91,7 +91,7 @@ fn is_empty() {
 
 #[test]
 fn iter() {
-    let mut map: CuckooHashMap<usize, String> = CuckooHashMap::new();
+    let mut map = CuckooHashMap::new();
     let mut expected = HashSet::new();
 
     for i in 0..5 {
@@ -108,7 +108,7 @@ fn iter() {
 
 #[test]
 fn keys() {
-    let mut map: CuckooHashMap<usize, String> = CuckooHashMap::new();
+    let mut map = CuckooHashMap::new();
     let mut expected = HashSet::new();
 
     for i in 0..5 {
@@ -122,7 +122,7 @@ fn keys() {
 
 #[test]
 fn values() {
-    let mut map: CuckooHashMap<usize, String> = CuckooHashMap::new();
+    let mut map = CuckooHashMap::new();
     let mut expected = HashSet::new();
 
     for i in 0..5 {
@@ -176,7 +176,7 @@ fn values_mut() {
 
 #[test]
 fn drain() {
-    let mut map: CuckooHashMap<usize, String> = CuckooHashMap::new();
+    let mut map = CuckooHashMap::new();
     let mut expected = HashSet::new();
 
     for i in 0..5 {
