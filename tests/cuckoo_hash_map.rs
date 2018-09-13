@@ -269,6 +269,14 @@ fn from_iterator() {
     }
 }
 
+#[test]
+fn into_iter() {
+    let mut map: CuckooHashMap<i32, String> = (0..10).map(|i| (i, i.to_string())).collect();
+    let expected: HashSet<(i32, String)> = (0..10).map(|i| (i, i.to_string())).collect();
+    let actual: HashSet<(i32, String)> = map.into_iter().collect();
+    assert_eq!(actual, expected);
+}
+
 fn assert_map_is_empty<K: Eq + Hash, V>(map: &mut CuckooHashMap<K, V>) {
     assert_eq!(map.len(), 0);
     assert!(map.is_empty());

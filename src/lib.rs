@@ -104,6 +104,14 @@ where
         }
     }
 
+    fn into_iter(self) -> TableIntoIter<K, V> {
+        TableIntoIter {
+            bucket: 0,
+            slot: 0,
+            table: self,
+        }
+    }
+
     fn drain(&mut self) -> TableDrain<K, V> {
         self.size = 0;
         TableDrain {
@@ -175,6 +183,36 @@ impl<'a, K: 'a + Eq + Hash, V: 'a> Iterator for TableIter<'a, K, V> {
                 self.slot += 1;
                 let (k, v) = slot.as_ref().unwrap();
                 return Some((k, v));
+            }
+
+            self.bucket += 1;
+            self.slot = 0;
+        }
+
+        None
+    }
+}
+
+struct TableIntoIter<K: Eq + Hash, V> {
+    bucket: usize,
+    slot: usize,
+    table: Table<K, V>
+}
+
+impl<K: Eq + Hash, V> Iterator for TableIntoIter<K, V> {
+    type Item = (K, V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.bucket < self.table.size() {
+            while self.slot < SLOTS_PER_BUCKET {
+                if self.table.buckets[self.bucket].partials[self.slot] == 0 {
+                    self.slot += 1;
+                    continue;
+                }
+
+                let item = self.table.buckets[self.bucket].slots[self.slot].take();
+                self.slot += 1;
+                return item;
             }
 
             self.bucket += 1;
@@ -1159,6 +1197,60 @@ where
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
+    }
+}
+
+impl<'a, K, V, S> IntoIterator for &'a mut CuckooHashMap<K, V, S>
+where
+    K: Eq + Hash,
+    S: BuildHasher,
+{
+    type Item = (&'a K, &'a mut V);
+    type IntoIter = IterMut<'a, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
+
+impl<K, V, S> IntoIterator for CuckooHashMap<K, V, S>
+    where K: Eq + Hash,
+          S: BuildHasher
+{
+    type Item = (K, V);
+    type IntoIter = IntoIter<K, V>;
+
+    /// Creates a consuming iterator, that is, one that moves each key-value
+    /// pair out of the map in arbitrary order. The map cannot be used after
+    /// calling this.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::CuckooHashMap;
+    ///
+    /// let mut map = CuckooHashMap::new();
+    /// map.insert("a", 1);
+    /// map.insert("b", 2);
+    /// map.insert("c", 3);
+    ///
+    /// // Not possible with .iter()
+    /// let vec: Vec<(&str, i32)> = map.into_iter().collect();
+    /// ```
+    fn into_iter(self) -> IntoIter<K, V> {
+        IntoIter { inner: self.table.into_iter() }
+    }
+}
+
+pub struct IntoIter<K: Eq + Hash, V> {
+    inner: TableIntoIter<K, V>,
+}
+
+impl<K: Eq + Hash, V> Iterator for IntoIter<K, V> {
+    type Item = (K, V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
     }
 }
 
