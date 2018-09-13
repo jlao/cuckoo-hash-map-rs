@@ -665,6 +665,24 @@ where
         }
     }
 
+    /// Returns a reference to the map's [`BuildHasher`].
+    ///
+    /// [`BuildHasher`]: ../../std/hash/trait.BuildHasher.html
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::CuckooHashMap;
+    /// use std::collections::hash_map::RandomState;
+    ///
+    /// let hasher = RandomState::new();
+    /// let map: CuckooHashMap<i32, i32> = CuckooHashMap::with_hasher(hasher);
+    /// let hasher: &RandomState = map.hasher();
+    /// ```
+    pub fn hasher(&self) -> &S {
+        &self.state
+    }
+
     /// Gets the given key's corresponding entry in the map for in-place manipulation.
     ///
     /// # Examples
