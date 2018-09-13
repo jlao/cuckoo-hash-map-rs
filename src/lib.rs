@@ -1077,6 +1077,23 @@ where
         Drain { inner: self.table.drain() }
     }
 
+    /// Clears the map, removing all key-value pairs. Keeps the allocated memory
+    /// for reuse.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::CuckooHashMap;
+    ///
+    /// let mut a = CuckooHashMap::new();
+    /// a.insert(1, "a");
+    /// a.clear();
+    /// assert!(a.is_empty());
+    /// ```
+    pub fn clear(&mut self) {
+        self.drain();
+    }
+
     fn find_slot<M, Q>(table: M, state: &S, key: &Q) -> Slot<M>
     where
         K: Borrow<Q>,

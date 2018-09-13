@@ -1,6 +1,7 @@
 extern crate cuckoo;
 
 use std::collections::HashSet;
+use std::hash::Hash;
 use cuckoo::CuckooHashMap;
 
 #[test]
@@ -203,12 +204,28 @@ fn drain() {
         assert!(map.drain().take(1).next().is_some());
     }
 
+    assert_map_is_empty(&mut map);
+}
+
+#[test]
+fn clear() {
+    let mut map = CuckooHashMap::new();
+    map.insert(1, 2);
+    map.insert(2, 3);
+    map.insert(3, 4);
+    map.clear();
+
+    assert_map_is_empty(&mut map);
+}
+
+fn assert_map_is_empty<K: Eq + Hash, V>(map: &mut CuckooHashMap<K, V>) {
     assert_eq!(map.len(), 0);
     assert!(map.is_empty());
-    assert_eq!(map.iter().next(), None, "iter() is not empty");
-    assert_eq!(map.keys().next(), None, "keys() is not empty");
-    assert_eq!(map.values().next(), None, "values() is not empty");
-    assert_eq!(map.iter_mut().next(), None, "iter_mut() is not empty");
+    assert!(map.iter().next().is_none(), "iter() is not empty");
+    assert!(map.keys().next().is_none(), "keys() is not empty");
+    assert!(map.values().next().is_none(), "values() is not empty");
+    assert!(map.values_mut().next().is_none(), "values() is not empty");
+    assert!(map.iter_mut().next().is_none(), "iter_mut() is not empty");
 }
 
 #[test]
