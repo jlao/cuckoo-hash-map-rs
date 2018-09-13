@@ -113,6 +113,31 @@ where
         }
     }
 
+    fn retain<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&K, &mut V) -> bool
+    {
+        for bucket in 0..self.buckets.len() {
+            for slot in 0..SLOTS_PER_BUCKET {
+                let partial = self.buckets[bucket].partials[slot];
+                if partial == 0 {
+                    continue;
+                }
+
+                let should_remove = {
+                    let (k, v) = self.buckets[bucket].slots[slot].as_mut().unwrap();
+                    !f(k, v)
+                };
+
+                if should_remove {
+                    self.size -= 1;
+                    self.buckets[bucket].partials[slot] = 0;
+                    self.buckets[bucket].slots[slot].take();
+                }
+            }
+        }
+    }
+
     fn insert<S>(&mut self, state: &S, hashkey: &HashKey, key: K, val: V) -> Option<V>
     where
         S: BuildHasher,
@@ -1092,6 +1117,12 @@ where
     /// ```
     pub fn clear(&mut self) {
         self.drain();
+    }
+
+    pub fn retain<F>(&mut self, f: F)
+        where F: FnMut(&K, &mut V) -> bool
+    {
+        self.table.retain(f);
     }
 
     fn find_slot<M, Q>(table: M, state: &S, key: &Q) -> Slot<M>

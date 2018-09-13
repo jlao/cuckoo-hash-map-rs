@@ -218,6 +218,32 @@ fn clear() {
     assert_map_is_empty(&mut map);
 }
 
+#[test]
+fn retain() {
+    let mut map = CuckooHashMap::new();
+    for i in 0..10 {
+        map.insert(i, i);
+    }
+
+    let expected: HashSet<_> = map.iter()
+        .filter_map(|(&k, &v)|
+            if k % 2 == 0 {
+                Some((k, v))
+            } else {
+                None
+            })
+        .collect();
+
+    map.retain(|k, _| k % 2 == 0);
+    assert_eq!(map.len(), 5);
+
+    let actual: HashSet<_> = map.iter()
+        .map(|(&k, &v)| (k, v))
+        .collect();
+
+    assert_eq!(actual, expected);
+}
+
 fn assert_map_is_empty<K: Eq + Hash, V>(map: &mut CuckooHashMap<K, V>) {
     assert_eq!(map.len(), 0);
     assert!(map.is_empty());
