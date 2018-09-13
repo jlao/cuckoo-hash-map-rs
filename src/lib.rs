@@ -1149,6 +1149,29 @@ where
     }
 }
 
+impl<K, V, S> Extend<(K, V)> for CuckooHashMap<K, V, S>
+where
+    K: Eq + Hash,
+    S: BuildHasher,
+{
+    fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
+        for (k, v) in iter {
+            self.insert(k, v);
+        }
+    }
+}
+
+impl<'a, K, V, S> Extend<(&'a K, &'a V)> for CuckooHashMap<K, V, S>
+where
+    K: Eq + Hash + Copy,
+    V: Copy,
+    S: BuildHasher,
+{
+    fn extend<T: IntoIterator<Item = (&'a K, &'a V)>>(&mut self, iter: T) {
+        self.extend(iter.into_iter().map(|(&k, &v)| (k, v)))
+    }
+}
+
 pub struct Iter<'a, K: 'a + Eq + Hash, V: 'a> {
     inner: TableIter<'a, K, V>,
 }
