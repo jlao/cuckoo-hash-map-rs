@@ -259,6 +259,16 @@ fn extend() {
     assert_eq!(actual, expected);
 }
 
+#[test]
+fn from_iterator() {
+    let map: CuckooHashMap<_, _> = (0..10).map(|i| (i, i * 2)).collect();
+
+    assert_eq!(map.len(), 10);
+    for i in 0..10 {
+        assert_eq!(map.get(&i), Some(&(i * 2)));
+    }
+}
+
 fn assert_map_is_empty<K: Eq + Hash, V>(map: &mut CuckooHashMap<K, V>) {
     assert_eq!(map.len(), 0);
     assert!(map.is_empty());

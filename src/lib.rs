@@ -1119,6 +1119,19 @@ where
         self.drain();
     }
 
+    /// Retains only the elements specified by the predicate.
+    ///
+    /// In other words, remove all pairs `(k, v)` such that `f(&k,&mut v)` returns `false`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cuckoo::CuckooHashMap;
+    ///
+    /// let mut map: CuckooHashMap<i32, i32> = (0..8).map(|x|(x, x*10)).collect();
+    /// map.retain(|&k, _| k % 2 == 0);
+    /// assert_eq!(map.len(), 4);
+    /// ```
     pub fn retain<F>(&mut self, f: F)
         where F: FnMut(&K, &mut V) -> bool
     {
@@ -1169,6 +1182,18 @@ where
 {
     fn extend<T: IntoIterator<Item = (&'a K, &'a V)>>(&mut self, iter: T) {
         self.extend(iter.into_iter().map(|(&k, &v)| (k, v)))
+    }
+}
+
+impl<K, V, S> iter::FromIterator<(K, V)> for CuckooHashMap<K, V, S>
+where
+    K: Eq + Hash,
+    S: BuildHasher + Default,
+{
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> CuckooHashMap<K, V, S> {
+        let mut map = CuckooHashMap::with_hasher(Default::default());
+        map.extend(iter);
+        map
     }
 }
 
