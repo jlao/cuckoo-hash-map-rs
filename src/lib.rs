@@ -1763,6 +1763,14 @@ where
     }
 }
 
+impl<K, V, S> Eq for CuckooHashMap<K, V, S>
+where
+    K: Eq + Hash,
+    V: PartialEq,
+    S: BuildHasher,
+{
+}
+
 #[cfg(test)]
 mod internal_tests {
     use super::*;
