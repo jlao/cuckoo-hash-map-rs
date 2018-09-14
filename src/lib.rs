@@ -1748,6 +1748,21 @@ where
     }
 }
 
+impl<K, V, S> PartialEq for CuckooHashMap<K, V, S>
+where
+    K: Eq + Hash,
+    V: PartialEq,
+    S: BuildHasher,
+{
+    fn eq(&self, other: &CuckooHashMap<K, V, S>) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+
+        self.iter().all(|(k, v)| other.get(k).map_or(false, |v2| *v == *v2))
+    }
+}
+
 #[cfg(test)]
 mod internal_tests {
     use super::*;

@@ -270,8 +270,27 @@ fn from_iterator() {
 }
 
 #[test]
+fn equals() {
+    let map1: CuckooHashMap<_, _> = (0..10).map(|i| (i, i * 2)).collect();
+    let map2: CuckooHashMap<_, _> = (0..10).map(|i| (i, i * 2)).collect();
+    assert_eq!(map1, map2);
+
+    // Different values
+    let map2: CuckooHashMap<_, _> = (0..10).map(|i| (i, i * 3)).collect();
+    assert_ne!(map1, map2);
+
+    // Different number of items
+    let map2: CuckooHashMap<_, _> = (0..5).map(|i| (i, i * 2)).collect();
+    assert_ne!(map1, map2);
+
+    // Different keys and values
+    let map2: CuckooHashMap<_, _> = (0..10).map(|i| (i * 2, i * 3)).collect();
+    assert_ne!(map1, map2);
+}
+
+#[test]
 fn into_iter() {
-    let mut map: CuckooHashMap<i32, String> = (0..10).map(|i| (i, i.to_string())).collect();
+    let map: CuckooHashMap<i32, String> = (0..10).map(|i| (i, i.to_string())).collect();
     let expected: HashSet<(i32, String)> = (0..10).map(|i| (i, i.to_string())).collect();
     let actual: HashSet<(i32, String)> = map.into_iter().collect();
     assert_eq!(actual, expected);
