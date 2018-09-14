@@ -3,6 +3,7 @@ extern crate rand;
 use std::borrow::Borrow;
 use std::collections::hash_map::RandomState;
 use std::fmt;
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::hash::{BuildHasher, Hasher};
 use std::iter;
@@ -11,7 +12,6 @@ use std::slice;
 
 const MAX_DISPLACEMENTS: u8 = 100;
 
-#[derive(Debug)]
 pub struct CuckooHashMap<K, V, S = RandomState>
 where
     K: Eq + Hash,
@@ -1769,6 +1769,17 @@ where
     V: PartialEq,
     S: BuildHasher,
 {
+}
+
+impl<K, V, S> Debug for CuckooHashMap<K, V, S>
+where
+    K: Eq + Hash + Debug,
+    V: Debug,
+    S: BuildHasher,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_map().entries(self.iter()).finish()
+    }
 }
 
 #[cfg(test)]
