@@ -90,6 +90,10 @@ where
         self.buckets.len()
     }
 
+    fn capacity(&self) -> usize {
+        self.buckets.len() * SLOTS_PER_BUCKET
+    }
+
     fn iter<'a>(&'a self) -> TableIter<'a, K, V> {
         TableIter {
             bucket: 0,
@@ -695,6 +699,10 @@ where
     pub fn new() -> CuckooHashMap<K, V, RandomState> {
         Default::default()
     }
+
+    pub fn with_capacity(capacity: usize) -> CuckooHashMap<K, V, RandomState> {
+        Self::with_capacity_and_hasher(capacity, RandomState::new())
+    }
 }
 
 impl<K, V, S> CuckooHashMap<K, V, S>
@@ -723,9 +731,20 @@ where
     /// map.insert(1, 2);
     /// ```
     pub fn with_hasher(hash_builder: S) -> CuckooHashMap<K, V, S> {
+        Self::with_capacity_and_hasher(INITIAL_SIZE, hash_builder)
+    }
+
+    pub fn with_capacity_and_hasher(capacity: usize, hash_builder: S) -> CuckooHashMap<K, V, S>
+    {
+        let num_buckets = if capacity % 4 != 0 {
+            capacity / 4 + 1
+        } else {
+            capacity / 4
+        };
+
         CuckooHashMap {
             state: hash_builder,
-            table: Table::new(INITIAL_SIZE),
+            table: Table::new(num_buckets),
         }
     }
 
@@ -980,6 +999,10 @@ where
     /// ```
     pub fn len(&self) -> usize {
         self.table.size
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.table.capacity()
     }
 
     /// Returns true if the map contains no elements.
