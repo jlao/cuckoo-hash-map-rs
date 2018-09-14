@@ -692,7 +692,7 @@ where
     K: Hash + Eq,
 {
     pub fn new() -> CuckooHashMap<K, V, RandomState> {
-        CuckooHashMap::with_hasher(RandomState::new())
+        Default::default()
     }
 }
 
@@ -1779,6 +1779,16 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_map().entries(self.iter()).finish()
+    }
+}
+
+impl<K, V, S> Default for CuckooHashMap<K, V, S>
+where
+    K: Eq + Hash,
+    S: BuildHasher + Default,
+{
+    fn default() -> Self {
+        CuckooHashMap::with_hasher(Default::default())
     }
 }
 
