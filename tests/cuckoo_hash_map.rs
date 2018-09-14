@@ -296,6 +296,16 @@ fn into_iter() {
     assert_eq!(actual, expected);
 }
 
+#[test]
+fn clone() {
+    let map: CuckooHashMap<i32, String> = (0..10).map(|i| (i, i.to_string())).collect();
+    let mut map2 = map.clone();
+    assert_eq!(map, map2);
+
+    map2.insert(0, "foo".to_string());
+    assert_ne!(map, map2);
+}
+
 fn assert_map_is_empty<K: Eq + Hash, V>(map: &mut CuckooHashMap<K, V>) {
     assert_eq!(map.len(), 0);
     assert!(map.is_empty());

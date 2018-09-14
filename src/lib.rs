@@ -12,6 +12,7 @@ use std::slice;
 
 const MAX_DISPLACEMENTS: u8 = 100;
 
+#[derive(Clone)]
 pub struct CuckooHashMap<K, V, S = RandomState>
 where
     K: Eq + Hash,
@@ -65,7 +66,7 @@ impl HashKey {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Table<K, V>
 where
     K: Eq + Hash,
@@ -630,7 +631,7 @@ impl<K, V> fmt::Debug for ResizeError<K, V> {
 type RawSlot<K, V> = Option<(K, V)>;
 type PartialKey = u8;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Bucket<K, V> {
     partials: [PartialKey; SLOTS_PER_BUCKET],
     slots: [RawSlot<K, V>; SLOTS_PER_BUCKET],
