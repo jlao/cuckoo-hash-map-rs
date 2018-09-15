@@ -585,26 +585,6 @@ impl<K, V> Displaced<K, V> {
     }
 }
 
-impl<'m, K: 'm, V: 'm, M: 'm> Slot<M>
-where
-    K: Eq + Hash,
-    M: Deref<Target = Table<K, V>>,
-{
-    fn is_match(&self) -> bool {
-        match self {
-            Slot::Match(_) => true,
-            _ => false,
-        }
-    }
-
-    fn is_vacant(&self) -> bool {
-        match self {
-            Slot::Vacant(_) => true,
-            _ => false,
-        }
-    }
-}
-
 impl<'m, K: 'm, V: 'm> Slot<&'m mut Table<K, V>>
 where
     K: Eq + Hash,
@@ -1828,12 +1808,18 @@ mod internal_tests {
 
         {
             let mut slot = find_slot(&mut table, &hashkey, |k| *k == 4);
-            assert!(slot.is_vacant());
+            assert!(match slot {
+                Slot::Vacant(_) => true,
+                _ => false,
+            });
             slot.insert(&state, &hashkey, 4, "hello".to_string());
         }
 
         let slot = find_slot(&mut table, &hashkey, |k| *k == 4);
-        assert!(slot.is_match());
+        assert!(match slot {
+            Slot::Match(_) => true,
+            _ => false,
+        });
     }
 
     #[test]
