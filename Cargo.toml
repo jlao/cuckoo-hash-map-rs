@@ -5,3 +5,10 @@ authors = ["James Lao <lao.james@gmail.com>"]
 
 [dependencies]
 rand = "0.5.5"
+
+[dev-dependencies]
+criterion = "0.2"
+
+[[bench]]
+name = "hashmap"
+harness = false
